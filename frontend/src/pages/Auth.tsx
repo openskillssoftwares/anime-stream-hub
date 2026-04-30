@@ -28,7 +28,7 @@ const Auth = () => {
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    document.title = "Sign in — Lumen";
+    document.title = "Sign in — Hey Anime";
     if (user) navigate("/", { replace: true });
   }, [user, navigate]);
 

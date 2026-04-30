@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://backtix-6.onrender.com/api/:path*"
+    }
+  ]
+}

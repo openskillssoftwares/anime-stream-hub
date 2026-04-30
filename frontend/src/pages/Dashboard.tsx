@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { fetchMalList, toDbStatus, buildMalXml, downloadFile } from "@/lib/mal";
 
 interface Profile {
@@ -187,6 +188,10 @@ const Dashboard = () => {
           <StatCard label="Watching" value={stats.watching} accent />
           <StatCard label="Completed" value={stats.completed} />
           <StatCard label="Planned" value={stats.planned} />
+        </div>
+
+        <div className="mt-6">
+          <NotificationCenter />
         </div>
 
         <Tabs defaultValue="library" className="mt-10">

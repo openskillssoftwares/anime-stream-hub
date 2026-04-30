@@ -59,7 +59,7 @@ export const AnimeRow = ({ id, title, eyebrow, items, loading, numbered }: Props
           </div>
         )}
         {items?.map((a, i) => (
-          <div key={a.mal_id} className="snap-start">
+          <div key={`${a.mal_id}-${i}`} className="snap-start">
             <AnimeCard anime={a} rank={numbered ? i + 1 : undefined} />
           </div>
         ))}

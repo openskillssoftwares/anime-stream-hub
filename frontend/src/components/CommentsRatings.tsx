@@ -7,8 +7,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "react-router-dom";
 import { api, type CommentOut, type RatingStats } from "@/lib/api";
-import { getRecaptchaToken, recaptchaConfigured, turnstileConfigured } from "@/lib/captcha";
-import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { format } from "date-fns";
 
 export const CommentsRatings = ({ malId }: { malId: number | string }) => {
@@ -22,7 +20,6 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [meIsAdmin, setMeIsAdmin] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState<string | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     try {
@@ -62,21 +59,9 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
     if (!body) return;
     setPosting(true);
     try {
-      let captchaToken: string | undefined;
-      if (recaptchaConfigured()) {
-        captchaToken = await getRecaptchaToken("comment");
-      } else if (turnstileConfigured()) {
-        captchaToken = turnstileToken;
-        if (!captchaToken) {
-          toast.error("Please complete the security check");
-          setPosting(false);
-          return;
-        }
-      }
-      const c = await api.addComment(malId, body, captchaToken);
+      const c = await api.addComment(malId, body);
       setComments((prev) => [c, ...prev]);
       setDraft("");
-      setTurnstileToken(undefined);
       toast.success("Comment posted");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to post");
@@ -157,7 +142,6 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
                 maxLength={2000}
                 className="bg-secondary/40 border-border/60 resize-none"
               />
-              <TurnstileWidget onToken={setTurnstileToken} />
               <div className="mt-3 flex justify-end">
                 <Button type="submit" disabled={posting || !draft.trim()} className="bg-gradient-ember text-primary-foreground">
                   {posting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}

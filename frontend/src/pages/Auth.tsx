@@ -5,19 +5,19 @@ import { Sparkles, Loader2 } from "lucide-react";
 import { z } from "zod";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import heroImg from "@/assets/hero-anime.jpg";
-import { loadRecaptcha, recaptchaConfigured } from "@/lib/captcha";
 
 const schema = z.object({
   email: z.string().trim().email({ message: "Enter a valid email" }).max(255),
   password: z.string().min(8, { message: "At least 8 characters" }).max(72),
 });
+
+type FormKind = "signin" | "signup";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -30,48 +30,68 @@ const Auth = () => {
   useEffect(() => {
     document.title = "Sign in — Lumen";
     if (user) navigate("/", { replace: true });
-    if (recaptchaConfigured()) loadRecaptcha().catch(() => {});
   }, [user, navigate]);
 
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const verifyAndSubmit = async (kind: FormKind) => {
     const parsed = schema.safeParse({ email, password });
-    if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
-    setLoading(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success("Welcome back");
-    navigate("/", { replace: true });
-  };
+    if (!parsed.success) {
+      toast.error(parsed.error.issues[0].message);
+      return;
+    }
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsed = schema.safeParse({ email, password });
-    if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
-      email: parsed.data.email,
-      password: parsed.data.password,
-      options: { emailRedirectTo: window.location.origin },
-    });
-    setLoading(false);
-    if (error) { toast.error(error.message); return; }
-    toast.success("Account created — you're in.");
-    navigate("/", { replace: true });
+    try {
+      if (kind === "signin") {
+        const result = await supabase.auth.signInWithPassword({
+          email: parsed.data.email,
+          password: parsed.data.password,
+        });
+
+        const session = result.data.session;
+        if (!session?.access_token || !session?.refresh_token) {
+          throw new Error("Sign-in failed: session not returned.");
+        }
+
+        toast.success("Welcome back");
+        navigate("/dashboard", { replace: true });
+      } else {
+        const result = await supabase.auth.signUp({
+          email: parsed.data.email,
+          password: parsed.data.password,
+        });
+
+        if (result.data.session?.access_token && result.data.session?.refresh_token) {
+          toast.success("Account created — you're in.");
+          navigate("/dashboard", { replace: true });
+        } else {
+          toast.success("Account created. Check your email to confirm the registration.");
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Authentication failed";
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGoogle = async () => {
     setOauthLoading(true);
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
-    if (result.error) { toast.error("Google sign-in failed"); setOauthLoading(false); return; }
-    if (result.redirected) return;
-    navigate("/", { replace: true });
+    const result = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
+    });
+    if (result.error) {
+      toast.error(result.error.message || "Google sign-in failed");
+      setOauthLoading(false);
+      return;
+    }
   };
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-background">
-      {/* Left visual panel */}
       <div className="relative hidden lg:block overflow-hidden">
         <img src={heroImg} alt="" className="w-full h-full object-cover animate-slow-pan" />
         <div className="absolute inset-0 bg-gradient-to-br from-background/40 via-background/20 to-background/80" />
@@ -79,7 +99,7 @@ const Auth = () => {
         <div className="absolute bottom-12 left-12 right-12">
           <Link to="/" className="inline-flex items-center gap-2 mb-6">
             <Sparkles className="w-5 h-5 text-primary" />
-            <span className="font-display text-2xl font-semibold">Lumen<span className="text-primary">.</span></span>
+            <span className="font-display text-2xl font-semibold">HeyAnime<span className="text-primary">.</span></span>
           </Link>
           <h2 className="font-display text-4xl xl:text-5xl font-semibold leading-tight max-w-md text-balance">
             Stories worth losing sleep over.
@@ -90,7 +110,6 @@ const Auth = () => {
         </div>
       </div>
 
-      {/* Right form */}
       <div className="flex items-center justify-center p-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -112,10 +131,14 @@ const Auth = () => {
             <TabsContent value="signin">
               <h1 className="font-display text-3xl font-semibold mb-1">Welcome back</h1>
               <p className="text-sm text-muted-foreground mb-6">Continue your watchlist where you left off.</p>
-              <form onSubmit={handleSignIn} className="space-y-4">
+              <form onSubmit={(e) => { e.preventDefault(); void verifyAndSubmit("signin"); }} className="space-y-4">
                 <Field id="email-in" label="Email" type="email" value={email} onChange={setEmail} />
                 <Field id="pw-in" label="Password" type="password" value={password} onChange={setPassword} />
-                <Button type="submit" disabled={loading} className="w-full bg-gradient-ember text-primary-foreground hover:opacity-90 shadow-glow">
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-gradient-ember text-primary-foreground hover:opacity-90 shadow-glow"
+                >
                   {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Sign in
                 </Button>
@@ -128,10 +151,14 @@ const Auth = () => {
             <TabsContent value="signup">
               <h1 className="font-display text-3xl font-semibold mb-1">Create your account</h1>
               <p className="text-sm text-muted-foreground mb-6">Free forever. Your taste, your library.</p>
-              <form onSubmit={handleSignUp} className="space-y-4">
+              <form onSubmit={(e) => { e.preventDefault(); void verifyAndSubmit("signup"); }} className="space-y-4">
                 <Field id="email-up" label="Email" type="email" value={email} onChange={setEmail} />
                 <Field id="pw-up" label="Password" type="password" value={password} onChange={setPassword} hint="At least 8 characters" />
-                <Button type="submit" disabled={loading} className="w-full bg-gradient-ember text-primary-foreground hover:opacity-90 shadow-glow">
+                <Button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-gradient-ember text-primary-foreground hover:opacity-90 shadow-glow"
+                >
                   {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   Create account
                 </Button>

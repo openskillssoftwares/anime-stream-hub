@@ -1,6 +1,31 @@
 // Jikan API client. Goes through our backend proxy so we get caching + stale-on-error.
-const RAW_BASE = (import.meta.env.REACT_APP_BACKEND_URL as string) || "";
+const RAW_BASE = (import.meta.env.VITE_BACKEND_URL as string) || "";
 const BASE = `${RAW_BASE}/api/jikan`;
+
+const normalize = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+
+export const rankSearchResults = (items: Anime[], query: string): Anime[] => {
+  const q = normalize(query);
+  if (!q) return items;
+  const tokens = q.split(" ").filter(Boolean);
+
+  const score = (anime: Anime) => {
+    const title = normalize(anime.title_english || anime.title || "");
+    const exact = title === q ? 1000 : 0;
+    const starts = title.startsWith(q) ? 500 : 0;
+    const wordHits = tokens.reduce((acc, token) => acc + (title.includes(token) ? 20 : 0), 0);
+    const fuzzy = tokens.reduce((acc, token) => acc + (title.includes(token) ? 1 : 0), 0);
+    const meta = (anime.score || 0) + (anime.episodes || 0) * 0.01 + (anime.year || 0) * 0.0001;
+    return exact + starts + wordHits + fuzzy + meta;
+  };
+
+  return [...items].sort((a, b) => score(b) - score(a));
+};
 
 export interface Anime {
   mal_id: number;

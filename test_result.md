@@ -109,7 +109,7 @@ user_problem_statement: |
     - Add MongoDB-backed FastAPI for: comments, 5-star ratings, admin moderation
     - Admin gate: ADMIN_EMAIL=admin@lumen.local
     - Anime block list (admin can ban a MAL ID; player shows "unavailable" when blocked)
-    - reCAPTCHA v3 + Cloudflare Turnstile stubs (disabled until keys provided)
+    - bot protection stubs (disabled in this branch)
     - Lottie hero accent + interactive starfield/ember background
     - AdSense slot placeholders (real ads load only when VITE_ADSENSE_PUB_ID provided)
 
@@ -124,10 +124,10 @@ backend:
     status_history:
       - working: "NA"
         agent: "main"
-        comment: "GET /api/, /api/health, /api/security/config (returns recaptcha_enabled/turnstile_enabled flags). No auth required."
+        comment: "GET /api/ and /api/health. No auth required."
       - working: true
         agent: "testing"
-        comment: "✅ All health endpoints working correctly. GET /api/ returns status=ok, GET /api/health returns ok=true, GET /api/security/config returns recaptcha_enabled=false and turnstile_enabled=false as expected."
+        comment: "✅ All health endpoints working correctly. GET /api/ returns status=ok and GET /api/health returns ok=true."
 
   - task: "Supabase JWT-based auth middleware"
     implemented: true

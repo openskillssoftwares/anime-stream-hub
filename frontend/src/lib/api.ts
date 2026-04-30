@@ -1,7 +1,7 @@
-// Lumen backend API client. Always uses REACT_APP_BACKEND_URL.
+// Lumen backend API client. Use Vite env `VITE_BACKEND_URL`.
 import { supabase } from "@/integrations/supabase/client";
 
-const BASE = (import.meta.env.REACT_APP_BACKEND_URL as string) || "";
+const BASE = (import.meta.env.VITE_BACKEND_URL as string) || "";
 
 async function authHeader(): Promise<Record<string, string>> {
   const { data } = await supabase.auth.getSession();
@@ -92,12 +92,37 @@ export interface ProgressIn {
   title?: string;
   image_url?: string;
 }
+export interface NoticeRow {
+  id: string;
+  title: string;
+  body: string;
+  level: "info" | "warning" | "critical" | "success";
+  target: "all" | "admins";
+  created_at?: string;
+}
+
+export interface AuthProxyResult {
+  session?: {
+    access_token: string;
+    refresh_token: string;
+    expires_in?: number;
+    token_type?: string;
+  } | null;
+  user?: {
+    id: string;
+    email?: string;
+  } | null;
+  message?: string;
+}
 
 // ---- endpoints ----
 export const api = {
   health: () => req<{ ok: boolean }>("/health"),
   me: () => req<MeOut>("/me"),
-  securityConfig: () => req<{ recaptcha_enabled: boolean; turnstile_enabled: boolean }>("/security/config"),
+  authSignIn: (payload: { email: string; password: string }) =>
+    req<AuthProxyResult>("/auth/signin", { method: "POST", body: JSON.stringify(payload) }),
+  authSignUp: (payload: { email: string; password: string }) =>
+    req<AuthProxyResult>("/auth/signup", { method: "POST", body: JSON.stringify(payload) }),
 
   isAnimeBlocked: (malId: number | string) =>
     req<{ blocked: boolean; reason: string }>(`/anime/${malId}/blocked`),
@@ -150,8 +175,8 @@ export const api = {
     req<CommentOut[]>(`/users/${userId}/comments?limit=${limit}`),
 
   listComments: (malId: number | string) => req<CommentOut[]>(`/comments/${malId}`),
-  addComment: (malId: number | string, body: string, captcha_token?: string) =>
-    req<CommentOut>(`/comments/${malId}`, { method: "POST", body: JSON.stringify({ body, captcha_token }) }),
+  addComment: (malId: number | string, body: string) =>
+    req<CommentOut>(`/comments/${malId}`, { method: "POST", body: JSON.stringify({ body }) }),
   deleteComment: (id: string) => req<{ ok: boolean }>(`/comments/${id}`, { method: "DELETE" }),
 
   getRating: (malId: number | string) => req<RatingStats>(`/ratings/${malId}`),
@@ -182,4 +207,15 @@ export const api = {
     req<{ ok: boolean }>(`/admin/comments/${id}`, { method: "DELETE" }),
   adminHardDeleteComment: (id: string) =>
     req<{ ok: boolean }>(`/admin/comments/${id}/hard`, { method: "DELETE" }),
+
+  // notifications
+  notices: () => req<NoticeRow[]>("/notifications"),
+  adminNotices: () => req<NoticeRow[]>("/admin/notifications"),
+  adminCreateNotice: (payload: { title: string; body: string; level?: string; target?: string }) =>
+    req<{ ok: boolean; id: string }>("/admin/notifications", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  adminDeleteNotice: (id: string) =>
+    req<{ ok: boolean }>(`/admin/notifications/${id}`, { method: "DELETE" }),
 };

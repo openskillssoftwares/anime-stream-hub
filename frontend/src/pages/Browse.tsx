@@ -3,12 +3,12 @@ import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Filter, Loader2, X } from "lucide-react";
-import { Navbar } from "@/components/Navbar";
+import { Navbar } from "../components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AnimeCard } from "@/components/AnimeCard";
-import { jikan } from "@/lib/jikan";
+import { jikan, rankSearchResults, type Anime } from "@/lib/jikan";
 
 const TYPE_OPTIONS = ["", "tv", "movie", "ova", "ona", "special"] as const;
 const STATUS_OPTIONS = ["", "airing", "complete", "upcoming"] as const;
@@ -52,7 +52,7 @@ const Browse = () => {
 
   const results = useQuery({
     queryKey: ["browse", q, type, status, order, genres.join(","), page],
-    queryFn: () => jikan.byFilters({
+    queryFn: (): Promise<Anime[]> => jikan.byFilters({
       q: q || undefined,
       type: type || undefined,
       status: status || undefined,
@@ -62,8 +62,10 @@ const Browse = () => {
       page,
       limit: 24,
     }),
-    keepPreviousData: true,
+    placeholderData: (prev) => prev,
   });
+
+  const orderedResults: Anime[] = results.data && q ? rankSearchResults(results.data, q) : (results.data || []);
 
   const toggleGenre = (id: number) => {
     setGenres((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
@@ -149,9 +151,9 @@ const Browse = () => {
             <div className="py-24 grid place-items-center">
               <Loader2 className="w-6 h-6 animate-spin text-primary" />
             </div>
-          ) : results.data && results.data.length > 0 ? (
+          ) : orderedResults.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {results.data.map((a) => (
+              {orderedResults.map((a) => (
                 <AnimeCard key={a.mal_id} anime={a} />
               ))}
             </div>
@@ -167,7 +169,7 @@ const Browse = () => {
           <Button variant="outline" size="sm" disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</Button>
           <span className="text-sm text-muted-foreground">Page {page}</span>
-          <Button variant="outline" size="sm" disabled={!results.data || results.data.length < 24}
+            <Button variant="outline" size="sm" disabled={orderedResults.length < 24}
                   onClick={() => setPage((p) => p + 1)}>Next →</Button>
         </div>
       </main>

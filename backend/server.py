@@ -12,21 +12,22 @@ Storage: MongoDB collections
 - ratings        : per-user per-anime 1..5 stars
 - banned_users   : list of banned supabase user_ids
 - banned_anime   : list of banned mal_ids (cannot be streamed)
-- security_log   : recaptcha / turnstile failures
 """
 from fastapi import FastAPI, APIRouter, HTTPException, Header, Depends, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import asyncio
 from pathlib import Path
-from pydantic import BaseModel, Field, conint, constr
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict, Any, Annotated
 import uuid
 from datetime import datetime
 import httpx
+
+# In-memory fallback cache used when MongoDB is not available (development)
+IN_MEMORY_CACHE: Dict[str, Dict[str, Any]] = {}
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -34,16 +35,11 @@ load_dotenv(ROOT_DIR / '.env')
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-MONGO_URL = os.environ['MONGO_URL']
-DB_NAME = os.environ['DB_NAME']
+DB_NAME = os.environ.get('DB_NAME', 'anime_stream')
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '').rstrip('/')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY', '')
 ADMIN_EMAIL = os.environ.get('ADMIN_EMAIL', 'admin@lumen.local').lower()
-RECAPTCHA_SECRET = os.environ.get('RECAPTCHA_SECRET', '')
-TURNSTILE_SECRET = os.environ.get('TURNSTILE_SECRET', '')
 
-client = AsyncIOMotorClient(MONGO_URL)
-db = client[DB_NAME]
 
 app = FastAPI(title="Lumen API")
 api_router = APIRouter(prefix="/api")
@@ -54,11 +50,192 @@ logger = logging.getLogger("lumen")
 
 
 # ---------------------------------------------------------------------------
+# Simple file-backed async collections to replace MongoDB for development.
+# Provides a minimal subset of the Motor/PyMongo API used by this service:
+#  - find(filter=None, sort=None, limit=None)
+#  - find_one(filter)
+#  - insert_one(doc)
+#  - update_one(filter, update, upsert=False)
+#  - aggregate(pipeline) -> object with to_list(n)
+#  - create_index(...) (no-op)
+#
+class AsyncAggregateCursor:
+    def __init__(self, rows):
+        self._rows = rows
+
+    async def to_list(self, n):
+        return self._rows[:n]
+
+
+class AsyncCollection:
+    def __init__(self, name, data_dir: Path):
+        self.name = name
+        self._path = data_dir / f"{name}.json"
+        self._lock = asyncio.Lock()
+        self._docs: List[Dict[str, Any]] = []
+        # ensure data dir exists
+        data_dir.mkdir(parents=True, exist_ok=True)
+        if not self._path.exists():
+            self._path.write_text("[]")
+
+    async def load(self):
+        async with self._lock:
+            txt = self._path.read_text()
+            try:
+                self._docs = list(__import__("json").loads(txt))
+            except Exception:
+                self._docs = []
+
+    async def _persist(self):
+        async with self._lock:
+            self._path.write_text(__import__("json").dumps(self._docs, default=str))
+
+    async def find(self, filter: Optional[Dict[str, Any]] = None, sort: Optional[List] = None, limit: Optional[int] = None):
+        def matches(doc, filt):
+            if not filt:
+                return True
+            for k, v in filt.items():
+                if isinstance(v, dict):
+                    # support $in and $ne minimally
+                    if "$in" in v:
+                        if doc.get(k) not in v["$in"]:
+                            return False
+                    if "$ne" in v:
+                        if doc.get(k) == v["$ne"]:
+                            return False
+                else:
+                    if doc.get(k) != v:
+                        return False
+            return True
+
+        res = [d for d in self._docs if matches(d, filter)]
+        if sort:
+            for key, direction in reversed(sort):
+                res.sort(key=lambda x: x.get(key), reverse=(direction < 0))
+        if limit is not None:
+            res = res[:limit]
+        return res
+
+    async def find_one(self, filter: Dict[str, Any], sort: Optional[List] = None):
+        lst = await self.find(filter, sort=sort, limit=1)
+        return lst[0] if lst else None
+
+    async def count_documents(self, filter: Optional[Dict[str, Any]] = None):
+        lst = await self.find(filter)
+        return len(lst)
+
+
+    async def insert_one(self, doc: Dict[str, Any]):
+        if not isinstance(doc, dict):
+            raise TypeError("doc must be a dict")
+        self._docs.append(doc)
+        await self._persist()
+
+    async def update_one(self, filter: Dict[str, Any], update: Dict[str, Any], upsert: bool = False):
+        row = await self.find_one(filter)
+        if row:
+            # apply $set
+            if "$set" in update:
+                for k, v in update["$set"].items():
+                    row[k] = v
+            # ignore other update ops except $setOnInsert
+            await self._persist()
+            return True
+        else:
+            if upsert:
+                new = {}
+                # apply $setOnInsert
+                if "$setOnInsert" in update:
+                    for k, v in update["$setOnInsert"].items():
+                        new[k] = v
+                # apply $set
+                if "$set" in update:
+                    for k, v in update["$set"].items():
+                        new[k] = v
+                # ensure an id exists
+                if "id" not in new:
+                    new["id"] = str(uuid.uuid4())
+                self._docs.append(new)
+                await self._persist()
+                return True
+            return False
+
+    async def delete_one(self, filter: Dict[str, Any]):
+        for idx, row in enumerate(self._docs):
+            if all(row.get(k) == v for k, v in filter.items()):
+                del self._docs[idx]
+                await self._persist()
+                return True
+        return False
+
+    async def delete_many(self, filter: Dict[str, Any]):
+        before = len(self._docs)
+        self._docs = [r for r in self._docs if not all(r.get(k) == v for k, v in filter.items())]
+        if len(self._docs) != before:
+            await self._persist()
+        return before - len(self._docs)
+
+    def aggregate(self, pipeline: List[Dict[str, Any]]):
+        # Minimal implementation for pipelines used in this service: $match followed by $group for avg/count
+        rows = self._docs
+        for stage in pipeline:
+            if "$match" in stage:
+                filt = stage["$match"]
+                rows = [r for r in rows if all(r.get(k) == v for k, v in filt.items())]
+            elif "$group" in stage:
+                g = stage["$group"]
+                # expect avg and sum like {"_id": "$mal_id", "avg": {"$avg": "$score"}, "count": {"$sum": 1}}
+                if "avg" in g and "count" in g:
+                    scores = [r.get("score") for r in rows if isinstance(r.get("score"), (int, float))]
+                    if scores:
+                        avg = sum(scores) / len(scores)
+                        cnt = len(scores)
+                    else:
+                        avg = 0.0
+                        cnt = 0
+                    return AsyncAggregateCursor([{"_id": None, "avg": avg, "count": cnt}])
+        return AsyncAggregateCursor(rows)
+
+    async def create_index(self, *args, **kwargs):
+        # no-op for file-backed storage
+        return None
+
+
+# initialize collections
+DATA_DIR = ROOT_DIR / "data"
+comments = AsyncCollection("comments", DATA_DIR)
+ratings = AsyncCollection("ratings", DATA_DIR)
+banned_users = AsyncCollection("banned_users", DATA_DIR)
+banned_anime = AsyncCollection("banned_anime", DATA_DIR)
+security_log = AsyncCollection("security_log", DATA_DIR)
+progress = AsyncCollection("progress", DATA_DIR)
+proxy_cache = AsyncCollection("proxy_cache", DATA_DIR)
+anikoto_mal_index = AsyncCollection("anikoto_mal_index", DATA_DIR)
+notifications = AsyncCollection("notifications", DATA_DIR)
+
+# db shim matching previous attribute access
+class DBShim:
+    def __getitem__(self, key: str):
+        return getattr(self, key)
+
+db = DBShim()
+db.comments = comments
+db.ratings = ratings
+db.banned_users = banned_users
+db.banned_anime = banned_anime
+db.security_log = security_log
+db.progress = progress
+db.proxy_cache = proxy_cache
+db.anikoto_mal_index = anikoto_mal_index
+db.notifications = notifications
+
+
+
+# ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
 class CommentIn(BaseModel):
-    body: constr(strip_whitespace=True, min_length=1, max_length=2000)
-    captcha_token: Optional[str] = None  # reCAPTCHA v3 or Turnstile
+    body: Annotated[str, Field(min_length=1, max_length=2000)]
 
 
 class CommentOut(BaseModel):
@@ -72,7 +249,7 @@ class CommentOut(BaseModel):
 
 
 class RatingIn(BaseModel):
-    score: conint(ge=1, le=5)
+    score: Annotated[int, Field(ge=1, le=5)]
 
 
 class RatingStats(BaseModel):
@@ -91,12 +268,24 @@ class BanUserIn(BaseModel):
     reason: Optional[str] = ""
 
 
+class NotificationIn(BaseModel):
+    title: Annotated[str, Field(min_length=3, max_length=120)]
+    body: Annotated[str, Field(min_length=3, max_length=2000)]
+    level: Annotated[str, Field(min_length=3, max_length=16)] = "info"
+    target: Annotated[str, Field(min_length=3, max_length=16)] = "all"
+
+
 class AuthedUser(BaseModel):
     id: str
     email: str
     name: str
     is_admin: bool
     is_banned: bool
+
+
+class AuthCredentialsIn(BaseModel):
+    email: Annotated[str, Field(min_length=3, max_length=255)]
+    password: Annotated[str, Field(min_length=8, max_length=72)]
 
 
 # ---------------------------------------------------------------------------
@@ -160,40 +349,27 @@ async def require_active(user: AuthedUser = Depends(get_current_user)) -> Authed
     return user
 
 
-# ---------------------------------------------------------------------------
-# Captcha verification (no-op when secrets are absent)
-# ---------------------------------------------------------------------------
-async def verify_captcha(token: Optional[str], remote_ip: Optional[str]) -> bool:
-    """Verify reCAPTCHA v3 OR Cloudflare Turnstile token. Skipped if no secret set."""
-    if not RECAPTCHA_SECRET and not TURNSTILE_SECRET:
-        return True  # security stub mode
-    if not token:
-        return False
-    async with httpx.AsyncClient(timeout=8.0) as http:
-        # Try reCAPTCHA first
-        if RECAPTCHA_SECRET:
-            try:
-                r = await http.post(
-                    "https://www.google.com/recaptcha/api/siteverify",
-                    data={"secret": RECAPTCHA_SECRET, "response": token,
-                          **({"remoteip": remote_ip} if remote_ip else {})},
-                )
-                if r.json().get("success"):
-                    return True
-            except Exception:
-                pass
-        if TURNSTILE_SECRET:
-            try:
-                r = await http.post(
-                    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-                    data={"secret": TURNSTILE_SECRET, "response": token,
-                          **({"remoteip": remote_ip} if remote_ip else {})},
-                )
-                if r.json().get("success"):
-                    return True
-            except Exception:
-                pass
-    return False
+async def _supabase_auth_request(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        raise HTTPException(status_code=503, detail="Auth not configured on server")
+    async with httpx.AsyncClient(timeout=10.0) as http:
+        res = await http.post(
+            f"{SUPABASE_URL}/auth/v1/{path}",
+            headers={
+                "apikey": SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+    try:
+        data = res.json()
+    except Exception:
+        data = {"message": res.text}
+    if res.status_code >= 400:
+        message = data.get("msg") or data.get("message") or data.get("error_description") or data.get("error") or "Authentication failed"
+        raise HTTPException(status_code=res.status_code, detail=message)
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +383,22 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"ok": True}
+
+
+@api_router.post("/auth/signin")
+async def auth_signin(payload: AuthCredentialsIn, request: Request):
+    return await _supabase_auth_request("token?grant_type=password", {
+        "email": payload.email,
+        "password": payload.password,
+    })
+
+
+@api_router.post("/auth/signup")
+async def auth_signup(payload: AuthCredentialsIn, request: Request):
+    return await _supabase_auth_request("signup", {
+        "email": payload.email,
+        "password": payload.password,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -224,8 +416,10 @@ async def is_anime_blocked(mal_id: int):
 @api_router.get("/comments/{mal_id}", response_model=List[CommentOut])
 async def list_comments(mal_id: int):
     rows = await db.comments.find(
-        {"mal_id": mal_id, "approved": {"$ne": False}, "deleted": {"$ne": True}}
-    ).sort("created_at", -1).to_list(200)
+        {"mal_id": mal_id, "approved": {"$ne": False}, "deleted": {"$ne": True}},
+        sort=[("created_at", -1)],
+        limit=200,
+    )
     return [CommentOut(**{
         "id": r["id"], "mal_id": r["mal_id"], "user_id": r["user_id"],
         "user_name": r.get("user_name", "anon"), "body": r["body"],
@@ -236,14 +430,6 @@ async def list_comments(mal_id: int):
 @api_router.post("/comments/{mal_id}", response_model=CommentOut)
 async def create_comment(mal_id: int, payload: CommentIn, request: Request,
                          user: AuthedUser = Depends(require_active)):
-    ok = await verify_captcha(payload.captcha_token, request.client.host if request.client else None)
-    if not ok:
-        await db.security_log.insert_one({
-            "id": str(uuid.uuid4()), "type": "captcha_fail",
-            "user_id": user.id, "mal_id": mal_id, "ts": datetime.utcnow(),
-        })
-        raise HTTPException(status_code=400, detail="Captcha verification failed")
-
     doc = {
         "id": str(uuid.uuid4()),
         "mal_id": mal_id,
@@ -415,7 +601,7 @@ async def public_profile(user_id: str):
 @api_router.get("/users/{user_id}/ratings", response_model=List[PublicRatingOut])
 async def public_user_ratings(user_id: str, limit: int = 50):
     limit = max(1, min(100, limit))
-    rows = await db.ratings.find({"user_id": user_id}).sort("score", -1).to_list(limit)
+    rows = await db.ratings.find({"user_id": user_id}, sort=[("score", -1)], limit=limit)
     out: List[PublicRatingOut] = []
     for r in rows:
         # Try to enrich with title/poster via the most recent progress row for
@@ -440,7 +626,7 @@ async def public_user_ratings(user_id: str, limit: int = 50):
 @api_router.get("/users/{user_id}/watchlist", response_model=List[PublicProgressOut])
 async def public_user_watchlist(user_id: str, limit: int = 30):
     limit = max(1, min(60, limit))
-    rows = await db.progress.find({"user_id": user_id}).sort("updated_at", -1).to_list(limit)
+    rows = await db.progress.find({"user_id": user_id}, sort=[("updated_at", -1)], limit=limit)
     out: List[PublicProgressOut] = []
     seen_mal_ids: set = set()
     for r in rows:
@@ -465,8 +651,10 @@ async def public_user_watchlist(user_id: str, limit: int = 30):
 async def public_user_comments(user_id: str, limit: int = 30):
     limit = max(1, min(50, limit))
     rows = await db.comments.find(
-        {"user_id": user_id, "deleted": {"$ne": True}, "approved": {"$ne": False}}
-    ).sort("created_at", -1).to_list(limit)
+        {"user_id": user_id, "deleted": {"$ne": True}, "approved": {"$ne": False}},
+        sort=[("created_at", -1)],
+        limit=limit,
+    )
     return [CommentOut(**{
         "id": r["id"], "mal_id": r["mal_id"], "user_id": r["user_id"],
         "user_name": r.get("user_name", "anon"), "body": r["body"],
@@ -486,9 +674,11 @@ async def admin_stats(_: AuthedUser = Depends(require_admin)):
     flagged = await db.security_log.count_documents({})
     # distinct users from comments/ratings
     user_ids = set()
-    async for r in db.comments.find({}, {"user_id": 1}):
+    comments_rows = await db.comments.find({}, limit=None)
+    for r in comments_rows:
         user_ids.add(r.get("user_id"))
-    async for r in db.ratings.find({}, {"user_id": 1}):
+    ratings_rows = await db.ratings.find({}, limit=None)
+    for r in ratings_rows:
         user_ids.add(r.get("user_id"))
     return {
         "comments": comments,
@@ -504,24 +694,27 @@ async def admin_stats(_: AuthedUser = Depends(require_admin)):
 async def admin_list_users(_: AuthedUser = Depends(require_admin)):
     """Return users seen via comments/ratings + banned status."""
     seen: Dict[str, Dict[str, Any]] = {}
-    async for r in db.comments.find({}, {"user_id": 1, "user_name": 1}):
+    comments_all = await db.comments.find({}, limit=None)
+    for r in comments_all:
         uid = r.get("user_id")
         if uid and uid not in seen:
             seen[uid] = {"user_id": uid, "name": r.get("user_name", ""), "comments": 0}
         if uid:
             seen[uid]["comments"] = seen[uid].get("comments", 0) + 1
-    async for r in db.ratings.find({}, {"user_id": 1}):
+    ratings_all = await db.ratings.find({}, limit=None)
+    for r in ratings_all:
         uid = r.get("user_id")
         if uid and uid not in seen:
             seen[uid] = {"user_id": uid, "name": "", "ratings": 0}
         if uid:
             seen[uid]["ratings"] = seen[uid].get("ratings", 0) + 1
-    banned = {b["user_id"] async for b in db.banned_users.find({}, {"user_id": 1})}
+    banned_rows = await db.banned_users.find({}, limit=None)
+    banned = {b["user_id"] for b in banned_rows}
     out = []
     for uid, info in seen.items():
         out.append({**info, "banned": uid in banned})
     # also include explicitly banned but unseen
-    async for b in db.banned_users.find({}):
+    for b in banned_rows:
         if b["user_id"] not in seen:
             out.append({"user_id": b["user_id"], "name": b.get("name", ""),
                         "banned": True, "comments": 0, "ratings": 0})
@@ -547,7 +740,7 @@ async def admin_unban_user(payload: BanUserIn, _: AuthedUser = Depends(require_a
 
 @api_router.get("/admin/anime/banned")
 async def admin_list_banned_anime(_: AuthedUser = Depends(require_admin)):
-    rows = await db.banned_anime.find({}).sort("banned_at", -1).to_list(500)
+    rows = await db.banned_anime.find({}, sort=[("banned_at", -1)], limit=500)
     return [{"mal_id": r["mal_id"], "reason": r.get("reason", ""),
              "banned_at": r.get("banned_at")} for r in rows]
 
@@ -571,7 +764,7 @@ async def admin_unban_anime(mal_id: int, _: AuthedUser = Depends(require_admin))
 
 @api_router.get("/admin/comments")
 async def admin_list_comments(_: AuthedUser = Depends(require_admin)):
-    rows = await db.comments.find({}).sort("created_at", -1).to_list(500)
+    rows = await db.comments.find({}, sort=[("created_at", -1)], limit=500)
     return [{
         "id": r["id"], "mal_id": r["mal_id"], "user_id": r["user_id"],
         "user_name": r.get("user_name", ""), "body": r["body"],
@@ -596,6 +789,60 @@ async def admin_delete_comment(comment_id: str, _: AuthedUser = Depends(require_
 @api_router.delete("/admin/comments/{comment_id}/hard")
 async def admin_hard_delete_comment(comment_id: str, _: AuthedUser = Depends(require_admin)):
     await db.comments.delete_one({"id": comment_id})
+    return {"ok": True}
+
+
+@api_router.get("/notifications")
+async def list_notifications(user: AuthedUser = Depends(get_current_user)):
+    rows = await db.notifications.find({"active": True}, sort=[("created_at", -1)], limit=50)
+    out = []
+    for n in rows:
+        target = (n.get("target") or "all").lower()
+        if target == "admins" and not user.is_admin:
+            continue
+        out.append({
+            "id": n.get("id"),
+            "title": n.get("title"),
+            "body": n.get("body"),
+            "level": n.get("level", "info"),
+            "target": target,
+            "created_at": n.get("created_at"),
+        })
+    return out
+
+
+@api_router.get("/admin/notifications")
+async def admin_list_notifications(_: AuthedUser = Depends(require_admin)):
+    rows = await db.notifications.find({}, sort=[("created_at", -1)], limit=100)
+    return rows
+
+
+@api_router.post("/admin/notifications")
+async def admin_create_notification(payload: NotificationIn,
+                                    _: AuthedUser = Depends(require_admin)):
+    level = payload.level.lower()
+    if level not in {"info", "warning", "critical", "success"}:
+        level = "info"
+    target = payload.target.lower()
+    if target not in {"all", "admins"}:
+        target = "all"
+    row = {
+        "id": str(uuid.uuid4()),
+        "title": payload.title,
+        "body": payload.body,
+        "level": level,
+        "target": target,
+        "active": True,
+        "created_at": datetime.utcnow(),
+    }
+    await db.notifications.insert_one(row)
+    return {"ok": True, "id": row["id"]}
+
+
+@api_router.delete("/admin/notifications/{notification_id}")
+async def admin_delete_notification(notification_id: str,
+                                    _: AuthedUser = Depends(require_admin)):
+    await db.notifications.delete_one({"id": notification_id})
     return {"ok": True}
 
 
@@ -861,8 +1108,7 @@ async def _index_anikoto_rows(rows: List[Dict[str, Any]]) -> int:
     Returns the number of rows indexed."""
     if not rows:
         return 0
-    ops = []
-    from pymongo import UpdateOne
+    count = 0
     for row in rows:
         mid = row.get("mal_id") or row.get("malId")
         aid = row.get("id") or row.get("series_id") or row.get("anikoto_id")
@@ -873,7 +1119,7 @@ async def _index_anikoto_rows(rows: List[Dict[str, Any]]) -> int:
             aid_int = int(str(aid))
         except (TypeError, ValueError):
             continue
-        ops.append(UpdateOne(
+        await db.anikoto_mal_index.update_one(
             {"mal_id": mid_int},
             {"$set": {
                 "mal_id": mid_int,
@@ -883,10 +1129,9 @@ async def _index_anikoto_rows(rows: List[Dict[str, Any]]) -> int:
                 "indexed_at": datetime.utcnow(),
             }},
             upsert=True,
-        ))
-    if ops:
-        await db.anikoto_mal_index.bulk_write(ops, ordered=False)
-    return len(ops)
+        )
+        count += 1
+    return count
 
 
 async def _anikoto_crawl_for_mal(target_mal_id: int, max_pages: int = 60,
@@ -1067,22 +1312,39 @@ async def get_stream(mal_id: int, ep: int = 1, lang: str = "sub",
 # Anikoto proxy (cached). Front-end never hits Anikoto directly.
 # ---------------------------------------------------------------------------
 async def _cache_get(key: str, allow_stale: bool = False) -> Optional[dict]:
-    row = await db.proxy_cache.find_one({"key": key})
-    if not row:
-        return None
-    if not allow_stale and row.get("expires_at") and row["expires_at"] < datetime.utcnow():
-        return None
-    return row.get("data")
+    # Prefer MongoDB-backed cache, but fall back to in-memory cache if DB is unavailable.
+    try:
+        row = await db.proxy_cache.find_one({"key": key})
+        if not row:
+            return None
+        if not allow_stale and row.get("expires_at") and row["expires_at"] < datetime.utcnow():
+            return None
+        return row.get("data")
+    except Exception:
+        # Fallback: in-memory cache stores { key: {"data": ..., "expires_at": datetime } }
+        ent = IN_MEMORY_CACHE.get(key)
+        if not ent:
+            return None
+        if not allow_stale and ent.get("expires_at") and ent["expires_at"] < datetime.utcnow():
+            return None
+        return ent.get("data")
 
 
 async def _cache_set(key: str, data: dict, ttl_seconds: int):
     from datetime import timedelta
-    await db.proxy_cache.update_one(
-        {"key": key},
-        {"$set": {"key": key, "data": data,
-                  "expires_at": datetime.utcnow() + timedelta(seconds=ttl_seconds)}},
-        upsert=True,
-    )
+    try:
+        await db.proxy_cache.update_one(
+            {"key": key},
+            {"$set": {"key": key, "data": data,
+                      "expires_at": datetime.utcnow() + timedelta(seconds=ttl_seconds)}},
+            upsert=True,
+        )
+    except Exception:
+        # Fallback to in-memory cache for development when MongoDB is unavailable.
+        IN_MEMORY_CACHE[key] = {
+            "data": data,
+            "expires_at": datetime.utcnow() + timedelta(seconds=ttl_seconds),
+        }
 
 
 async def _anikoto_series_cached(anikoto_id: int) -> Optional[dict]:
@@ -1168,10 +1430,10 @@ async def save_progress(payload: ProgressIn,
 
 @api_router.get("/progress/me")
 async def my_progress(user: AuthedUser = Depends(get_current_user), limit: int = 20):
-    cur = db.progress.find({"user_id": user.id}).sort("updated_at", -1).limit(limit)
-    rows = []
-    async for r in cur:
-        rows.append({
+    rows = await db.progress.find({"user_id": user.id}, sort=[("updated_at", -1)], limit=limit)
+    out = []
+    for r in rows:
+        out.append({
             "mal_id": r["mal_id"], "episode": r["episode"],
             "current_time": r.get("current_time", 0),
             "duration": r.get("duration", 0),
@@ -1181,7 +1443,7 @@ async def my_progress(user: AuthedUser = Depends(get_current_user), limit: int =
             "image_url": r.get("image_url"),
             "updated_at": r.get("updated_at"),
         })
-    return rows
+    return out
 
 
 @api_router.delete("/progress/{mal_id}")
@@ -1190,15 +1452,14 @@ async def delete_progress(mal_id: int, user: AuthedUser = Depends(get_current_us
     return {"ok": True}
 
 
-# ---------------------------------------------------------------------------
-# Security config exposure (frontend reads these to know whether to show widgets)
-# ---------------------------------------------------------------------------
-@api_router.get("/security/config")
-async def security_config():
-    return {
-        "recaptcha_enabled": bool(RECAPTCHA_SECRET),
-        "turnstile_enabled": bool(TURNSTILE_SECRET),
-    }
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -1206,10 +1467,13 @@ async def security_config():
 # ---------------------------------------------------------------------------
 app.include_router(api_router)
 
+_cors_origins = [o.strip() for o in os.environ.get('CORS_ORIGINS', 'http://localhost:3000,http://localhost:3001,http://localhost:3002').split(',') if o.strip()]
+_allow_all = '*' in _cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_credentials=not _allow_all,
+    allow_origins=['*'] if _allow_all else _cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1217,21 +1481,34 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def _startup():
-    # indexes
-    await db.comments.create_index([("mal_id", 1), ("created_at", -1)])
-    await db.ratings.create_index([("mal_id", 1), ("user_id", 1)], unique=True)
-    await db.banned_users.create_index("user_id", unique=True)
-    await db.banned_anime.create_index("mal_id", unique=True)
-    await db.progress.create_index([("user_id", 1), ("mal_id", 1), ("episode", 1)],
-                                   unique=True)
-    await db.progress.create_index([("user_id", 1), ("updated_at", -1)])
-    await db.proxy_cache.create_index("key", unique=True)
-    await db.proxy_cache.create_index("expires_at", expireAfterSeconds=0)
-    await db.anikoto_mal_index.create_index("mal_id", unique=True)
-    await db.anikoto_mal_index.create_index("anikoto_id")
-    logger.info("Lumen API ready. Admin email: %s", ADMIN_EMAIL)
+    # Load file-backed collections into memory
+    try:
+        await db.comments.load()
+        await db.ratings.load()
+        await db.banned_users.load()
+        await db.banned_anime.load()
+        await db.security_log.load()
+        await db.progress.load()
+        await db.proxy_cache.load()
+        await db.anikoto_mal_index.load()
+        await db.notifications.load()
+        logger.info("Lumen API ready (file-backed storage). Admin email: %s", ADMIN_EMAIL)
+    except Exception as e:
+        logger.warning("Failed loading file-backed collections: %s", e)
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    # Persist collections to disk on shutdown
+    try:
+        await db.comments._persist()
+        await db.ratings._persist()
+        await db.banned_users._persist()
+        await db.banned_anime._persist()
+        await db.security_log._persist()
+        await db.progress._persist()
+        await db.proxy_cache._persist()
+        await db.anikoto_mal_index._persist()
+        await db.notifications._persist()
+    except Exception:
+        pass

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { InteractiveBackground } from "@/components/InteractiveBackground";
+import { SiteFooter } from "@/components/SiteFooter";
 import Index from "./pages/Index.tsx";
 import Watch from "./pages/Watch.tsx";
 import Auth from "./pages/Auth.tsx";
@@ -14,7 +15,11 @@ import Browse from "./pages/Browse.tsx";
 import Profile from "./pages/Profile.tsx";
 import ForgotPassword from "./pages/ForgotPassword.tsx";
 import ResetPassword from "./pages/ResetPassword.tsx";
+import DMCA from "./pages/DMCA.tsx";
+import Donation from "./pages/Donation.tsx";
+import Contact from "./pages/Contact.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import FloatingAIButton from "@/components/FloatingAIButton";
 
 const queryClient = new QueryClient();
 
@@ -34,10 +39,15 @@ const App = () => (
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/profile/:userId" element={<Profile />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/dmca" element={<DMCA />} />
+            <Route path="/donation" element={<Donation />} />
+            <Route path="/contact" element={<Contact />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <SiteFooter />
+          <FloatingAIButton />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

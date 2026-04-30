@@ -5,6 +5,7 @@ import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
 import { AnimeRow } from "@/components/AnimeRow";
 import { AdSlot } from "@/components/AdSlot";
+import { Schedule } from "@/components/Schedule";
 import { ContinueWatchingRow } from "@/components/ContinueWatchingRow";
 import { jikan } from "@/lib/jikan";
 
@@ -13,7 +14,7 @@ const Index = () => {
   const q = params.get("q") || "";
 
   useEffect(() => {
-    document.title = "Lumen — Editorial anime streaming";
+    document.title = "HeyAnime — Editorial anime streaming";
     const meta = document.querySelector('meta[name="description"]');
     if (meta) meta.setAttribute("content", "Stream trending, top-rated and seasonal anime in a cinematic editorial experience.");
   }, []);
@@ -45,16 +46,14 @@ const Index = () => {
           <AnimeRow id="trending" eyebrow="On the rise" title="Trending now" items={trending.data} loading={trending.isLoading} />
           <AnimeRow id="new" eyebrow="Hot off the press" title="New releases" items={newReleases.data} loading={newReleases.isLoading} />
           <AnimeRow id="season" eyebrow="Currently airing" title="This season" items={season.data} loading={season.isLoading} />
-          <div className="container py-2">
-            <AdSlot slot="home-mid" className="my-6 max-w-3xl mx-auto" />
+          <div className="container py-6">
+            <Schedule items={[...(trending.data || []), ...(season.data || []), ...(newReleases.data || []), ...(top.data || []), ...(upcoming.data || [])]} />
+            <div className="my-6 max-w-3xl mx-auto">
+              <AdSlot slot="home-mid" className="mt-6" />
+            </div>
           </div>
           <AnimeRow id="top" eyebrow="All-time greats" title="Top 10 of all time" items={top.data} loading={top.isLoading} numbered />
           <AnimeRow eyebrow="Coming soon" title="Upcoming releases" items={upcoming.data} loading={upcoming.isLoading} />
-          <footer className="container py-16 border-t border-border/40 mt-10">
-            <p className="text-sm text-muted-foreground">
-              Lumen is an editorial anime discovery experience. Catalog data via MyAnimeList. Streams embedded from third-party providers.
-            </p>
-          </footer>
         </main>
       )}
     </div>

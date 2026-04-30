@@ -10,9 +10,12 @@ export default defineConfig(({ mode }) => ({
     port: 3000,
     strictPort: false,
     allowedHosts: true,
+    // Ignore env files to avoid constant restarts when .env is edited/saved
+    watch: {
+      ignored: ["**/.env", "**/*.env"],
+    },
     hmr: {
       overlay: false,
-      clientPort: 443,
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

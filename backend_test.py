@@ -11,11 +11,12 @@ import requests
 import json
 import time
 import sys
+import os
 from datetime import datetime
 
 # Configuration
-BACKEND_URL = "https://mal-stream-pro.preview.emergentagent.com"
-SUPABASE_URL = "https://nkpnuyvjotjyvledrrwp.supabase.co"
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://nkpnuyvjotjyvledrrwp.supabase.co")
 SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rcG51eXZqb3RqeXZsZWRycndwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc1MjU4NTcsImV4cCI6MjA5MzEwMTg1N30.Om-O8DMpPjgjRVo5JBf8WcfLwLsvq1OqnfxnaOvCFJA"
 
 # Test credentials

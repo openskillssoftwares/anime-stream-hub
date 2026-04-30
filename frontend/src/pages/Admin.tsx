@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { NotificationCenter } from "@/components/NotificationCenter";
 import { api, type AdminUserRow, type AdminCommentRow, type BannedAnimeRow } from "@/lib/api";
 
 const Admin = () => {
@@ -28,6 +29,8 @@ const Admin = () => {
 
   const [malToBan, setMalToBan] = useState("");
   const [malReason, setMalReason] = useState("");
+  const [noticeTitle, setNoticeTitle] = useState("");
+  const [noticeBody, setNoticeBody] = useState("");
 
   useEffect(() => { document.title = "Admin — Lumen"; }, []);
 
@@ -97,6 +100,23 @@ const Admin = () => {
     catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); }
   };
 
+  const postNotice = async () => {
+    const title = noticeTitle.trim();
+    const body = noticeBody.trim();
+    if (!title || !body) {
+      toast.error("Notice title and body are required");
+      return;
+    }
+    try {
+      await api.adminCreateNotice({ title, body, level: "info", target: "all" });
+      setNoticeTitle("");
+      setNoticeBody("");
+      toast.success("Notice posted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
   if (authLoading || checking) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -130,6 +150,7 @@ const Admin = () => {
             <TabsTrigger value="comments"><MessageSquare className="w-4 h-4 mr-2" />Comments</TabsTrigger>
             <TabsTrigger value="users"><Users className="w-4 h-4 mr-2" />Users</TabsTrigger>
             <TabsTrigger value="anime"><Film className="w-4 h-4 mr-2" />Anime gate</TabsTrigger>
+            <TabsTrigger value="notices"><AlertTriangle className="w-4 h-4 mr-2" />Notices</TabsTrigger>
           </TabsList>
 
           {/* Comments */}
@@ -225,6 +246,18 @@ const Admin = () => {
                 </div>
               )}
             </div>
+          </TabsContent>
+
+          <TabsContent value="notices" className="mt-6 space-y-4">
+            <div className="p-4 rounded-lg bg-card/60 ring-1 ring-border/60">
+              <h3 className="font-display text-lg font-semibold mb-2">Publish important notice</h3>
+              <div className="space-y-2">
+                <Input value={noticeTitle} onChange={(e) => setNoticeTitle(e.target.value)} placeholder="Title" className="bg-secondary/50 border-border/60" />
+                <Input value={noticeBody} onChange={(e) => setNoticeBody(e.target.value)} placeholder="Message" className="bg-secondary/50 border-border/60" />
+                <Button onClick={postNotice} className="bg-gradient-ember text-primary-foreground">Post notice</Button>
+              </div>
+            </div>
+            <NotificationCenter admin />
           </TabsContent>
         </Tabs>
       </main>

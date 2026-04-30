@@ -454,6 +454,207 @@ async def admin_hard_delete_comment(comment_id: str, _: AuthedUser = Depends(req
 
 
 # ---------------------------------------------------------------------------
+# Streaming: build embed URL for (mal_id, ep, lang). Source can be:
+#   - "mal":     https://megaplay.buzz/stream/mal/{mal_id}/{ep}/{lang}
+#   - "anikoto": resolve via Anikoto /series/{anikoto_id} → episode_embed_id
+#                → https://megaplay.buzz/stream/s-2/{episode_embed_id}/{lang}
+# Anikoto MUST be called server-side (their docs). We cache results.
+# ---------------------------------------------------------------------------
+ANIKOTO_BASE = "https://anikotoapi.site"
+MEGAPLAY_BASE = "https://megaplay.buzz"
+
+
+class StreamOut(BaseModel):
+    embed_url: str
+    source: str  # "mal" | "anikoto"
+    mal_id: int
+    episode: int
+    lang: str
+    episode_embed_id: Optional[str] = None
+    title: Optional[str] = None
+
+
+@api_router.get("/stream", response_model=StreamOut)
+async def get_stream(mal_id: int, ep: int = 1, lang: str = "sub",
+                     source: str = "mal", anikoto_id: Optional[int] = None):
+    lang = (lang or "sub").lower()
+    if lang not in ("sub", "dub"):
+        raise HTTPException(status_code=400, detail="lang must be sub or dub")
+
+    # Block check
+    if await db.banned_anime.find_one({"mal_id": mal_id}):
+        raise HTTPException(status_code=403, detail="This title is unavailable")
+
+    if source == "mal":
+        url = f"{MEGAPLAY_BASE}/stream/mal/{mal_id}/{ep}/{lang}"
+        return StreamOut(embed_url=url, source="mal", mal_id=mal_id, episode=ep, lang=lang)
+
+    if source == "anikoto":
+        if not anikoto_id:
+            raise HTTPException(status_code=400, detail="anikoto_id required for anikoto source")
+        series = await _anikoto_series_cached(anikoto_id)
+        episodes = (series or {}).get("episodes") or []
+        # find by episode number; fall back to position
+        chosen = None
+        for e in episodes:
+            num = e.get("number") or e.get("episode_number") or e.get("ep_num")
+            try:
+                if num is not None and int(num) == ep:
+                    chosen = e
+                    break
+            except (TypeError, ValueError):
+                pass
+        if chosen is None and 0 < ep <= len(episodes):
+            chosen = episodes[ep - 1]
+        if chosen is None:
+            raise HTTPException(status_code=404, detail="Episode not found in Anikoto series")
+        embed_id = (chosen.get("episode_embed_id")
+                    or chosen.get("embed_id")
+                    or chosen.get("id"))
+        if not embed_id:
+            # try embed_url first
+            emb = chosen.get("embed_url") or {}
+            url = emb.get(lang) or emb.get("sub") or emb.get("dub")
+            if url:
+                return StreamOut(embed_url=url, source="anikoto", mal_id=mal_id,
+                                 episode=ep, lang=lang, title=chosen.get("title"))
+            raise HTTPException(status_code=502, detail="No embed id from Anikoto")
+        url = f"{MEGAPLAY_BASE}/stream/s-2/{embed_id}/{lang}"
+        return StreamOut(embed_url=url, source="anikoto", mal_id=mal_id,
+                         episode=ep, lang=lang, episode_embed_id=str(embed_id),
+                         title=chosen.get("title"))
+
+    raise HTTPException(status_code=400, detail="Unknown source")
+
+
+# ---------------------------------------------------------------------------
+# Anikoto proxy (cached). Front-end never hits Anikoto directly.
+# ---------------------------------------------------------------------------
+async def _cache_get(key: str) -> Optional[dict]:
+    row = await db.proxy_cache.find_one({"key": key})
+    if not row:
+        return None
+    if row.get("expires_at") and row["expires_at"] < datetime.utcnow():
+        return None
+    return row.get("data")
+
+
+async def _cache_set(key: str, data: dict, ttl_seconds: int):
+    from datetime import timedelta
+    await db.proxy_cache.update_one(
+        {"key": key},
+        {"$set": {"key": key, "data": data,
+                  "expires_at": datetime.utcnow() + timedelta(seconds=ttl_seconds)}},
+        upsert=True,
+    )
+
+
+async def _anikoto_series_cached(anikoto_id: int) -> Optional[dict]:
+    key = f"anikoto:series:{anikoto_id}"
+    cached = await _cache_get(key)
+    if cached:
+        return cached
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            r = await http.get(f"{ANIKOTO_BASE}/series/{anikoto_id}",
+                               headers={"User-Agent": "Lumen/1.0"})
+        if r.status_code != 200:
+            raise HTTPException(status_code=502,
+                                detail=f"Anikoto returned {r.status_code}")
+        data = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Anikoto fetch failed")
+        raise HTTPException(status_code=502, detail=f"Anikoto unreachable: {e}")
+    await _cache_set(key, data, ttl_seconds=600)  # 10 min
+    return data
+
+
+@api_router.get("/anikoto/recent")
+async def anikoto_recent(page: int = 1, per_page: int = 20):
+    per_page = max(1, min(50, per_page))
+    page = max(1, page)
+    key = f"anikoto:recent:{page}:{per_page}"
+    cached = await _cache_get(key)
+    if cached:
+        return cached
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            r = await http.get(
+                f"{ANIKOTO_BASE}/recent-anime",
+                params={"page": page, "per_page": per_page},
+                headers={"User-Agent": "Lumen/1.0"},
+            )
+        if r.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"Anikoto {r.status_code}")
+        data = r.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Anikoto unreachable: {e}")
+    await _cache_set(key, data, ttl_seconds=120)  # 2 min
+    return data
+
+
+@api_router.get("/anikoto/series/{anikoto_id}")
+async def anikoto_series(anikoto_id: int):
+    data = await _anikoto_series_cached(anikoto_id)
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Watch progress (per user, per mal_id, per episode)
+# ---------------------------------------------------------------------------
+class ProgressIn(BaseModel):
+    mal_id: int
+    episode: int
+    current_time: float = 0
+    duration: float = 0
+    percent: float = 0
+    completed: bool = False
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+@api_router.post("/progress")
+async def save_progress(payload: ProgressIn,
+                        user: AuthedUser = Depends(require_active)):
+    payload_dict = payload.dict()
+    await db.progress.update_one(
+        {"user_id": user.id, "mal_id": payload.mal_id, "episode": payload.episode},
+        {"$set": {**payload_dict, "user_id": user.id, "updated_at": datetime.utcnow()},
+         "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": datetime.utcnow()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api_router.get("/progress/me")
+async def my_progress(user: AuthedUser = Depends(get_current_user), limit: int = 20):
+    cur = db.progress.find({"user_id": user.id}).sort("updated_at", -1).limit(limit)
+    rows = []
+    async for r in cur:
+        rows.append({
+            "mal_id": r["mal_id"], "episode": r["episode"],
+            "current_time": r.get("current_time", 0),
+            "duration": r.get("duration", 0),
+            "percent": r.get("percent", 0),
+            "completed": r.get("completed", False),
+            "title": r.get("title"),
+            "image_url": r.get("image_url"),
+            "updated_at": r.get("updated_at"),
+        })
+    return rows
+
+
+@api_router.delete("/progress/{mal_id}")
+async def delete_progress(mal_id: int, user: AuthedUser = Depends(get_current_user)):
+    await db.progress.delete_many({"user_id": user.id, "mal_id": mal_id})
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # Security config exposure (frontend reads these to know whether to show widgets)
 # ---------------------------------------------------------------------------
 @api_router.get("/security/config")
@@ -485,6 +686,11 @@ async def _startup():
     await db.ratings.create_index([("mal_id", 1), ("user_id", 1)], unique=True)
     await db.banned_users.create_index("user_id", unique=True)
     await db.banned_anime.create_index("mal_id", unique=True)
+    await db.progress.create_index([("user_id", 1), ("mal_id", 1), ("episode", 1)],
+                                   unique=True)
+    await db.progress.create_index([("user_id", 1), ("updated_at", -1)])
+    await db.proxy_cache.create_index("key", unique=True)
+    await db.proxy_cache.create_index("expires_at", expireAfterSeconds=0)
     logger.info("Lumen API ready. Admin email: %s", ADMIN_EMAIL)
 
 

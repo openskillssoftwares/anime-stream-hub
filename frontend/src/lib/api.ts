@@ -62,6 +62,36 @@ export interface BannedAnimeRow {
   reason: string;
   banned_at: string;
 }
+export interface StreamOut {
+  embed_url: string;
+  source: "mal" | "anikoto";
+  mal_id: number;
+  episode: number;
+  lang: "sub" | "dub";
+  episode_embed_id?: string | null;
+  title?: string | null;
+}
+export interface ProgressRow {
+  mal_id: number;
+  episode: number;
+  current_time: number;
+  duration: number;
+  percent: number;
+  completed: boolean;
+  title?: string | null;
+  image_url?: string | null;
+  updated_at?: string;
+}
+export interface ProgressIn {
+  mal_id: number;
+  episode: number;
+  current_time: number;
+  duration: number;
+  percent: number;
+  completed: boolean;
+  title?: string;
+  image_url?: string;
+}
 
 // ---- endpoints ----
 export const api = {
@@ -71,6 +101,32 @@ export const api = {
 
   isAnimeBlocked: (malId: number | string) =>
     req<{ blocked: boolean; reason: string }>(`/anime/${malId}/blocked`),
+
+  // streaming
+  getStream: (mal_id: number | string, ep: number, lang: "sub" | "dub" = "sub",
+              source: "mal" | "anikoto" = "mal", anikoto_id?: number) => {
+    const q = new URLSearchParams({
+      mal_id: String(mal_id),
+      ep: String(ep),
+      lang,
+      source,
+      ...(anikoto_id ? { anikoto_id: String(anikoto_id) } : {}),
+    });
+    return req<StreamOut>(`/stream?${q.toString()}`);
+  },
+  anikotoRecent: (page = 1, per_page = 20) =>
+    req<{ ok?: boolean; data?: unknown[]; pagination?: unknown }>(
+      `/anikoto/recent?page=${page}&per_page=${per_page}`
+    ),
+  anikotoSeries: (id: number) =>
+    req<{ ok?: boolean; anime?: unknown; episodes?: unknown[] }>(`/anikoto/series/${id}`),
+
+  // progress
+  saveProgress: (p: ProgressIn) =>
+    req<{ ok: boolean }>("/progress", { method: "POST", body: JSON.stringify(p) }),
+  myProgress: (limit = 20) => req<ProgressRow[]>(`/progress/me?limit=${limit}`),
+  deleteProgress: (mal_id: number | string) =>
+    req<{ ok: boolean }>(`/progress/${mal_id}`, { method: "DELETE" }),
 
   listComments: (malId: number | string) => req<CommentOut[]>(`/comments/${malId}`),
   addComment: (malId: number | string, body: string, captcha_token?: string) =>

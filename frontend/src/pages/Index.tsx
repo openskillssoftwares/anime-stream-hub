@@ -5,6 +5,7 @@ import { Navbar } from "@/components/Navbar";
 import { Hero } from "@/components/Hero";
 import { AnimeRow } from "@/components/AnimeRow";
 import { AdSlot } from "@/components/AdSlot";
+import { ContinueWatchingRow } from "@/components/ContinueWatchingRow";
 import { jikan } from "@/lib/jikan";
 
 const Index = () => {
@@ -40,6 +41,7 @@ const Index = () => {
       ) : (
         <main>
           <Hero featured={featured} />
+          <ContinueWatchingRow />
           <AnimeRow id="trending" eyebrow="On the rise" title="Trending now" items={trending.data} loading={trending.isLoading} />
           <AnimeRow id="new" eyebrow="Hot off the press" title="New releases" items={newReleases.data} loading={newReleases.isLoading} />
           <AnimeRow id="season" eyebrow="Currently airing" title="This season" items={season.data} loading={season.isLoading} />

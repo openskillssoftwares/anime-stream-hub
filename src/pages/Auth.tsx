@@ -36,7 +36,7 @@ const Auth = () => {
     const parsed = schema.safeParse({ email, password });
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword(parsed.data);
+    const { error } = await supabase.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
     setLoading(false);
     if (error) { toast.error(error.message); return; }
     toast.success("Welcome back");
@@ -49,7 +49,8 @@ const Auth = () => {
     if (!parsed.success) { toast.error(parsed.error.issues[0].message); return; }
     setLoading(true);
     const { error } = await supabase.auth.signUp({
-      ...parsed.data,
+      email: parsed.data.email,
+      password: parsed.data.password,
       options: { emailRedirectTo: window.location.origin },
     });
     setLoading(false);

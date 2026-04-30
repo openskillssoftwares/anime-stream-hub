@@ -61,7 +61,7 @@ const Watch = () => {
 
   useEffect(() => {
     if (anime.data) {
-      document.title = `${anime.data.title_english || anime.data.title} — Lumen`;
+      document.title = `${anime.data.title_english || anime.data.title} — Hey Anime`;
     }
   }, [anime.data]);
 

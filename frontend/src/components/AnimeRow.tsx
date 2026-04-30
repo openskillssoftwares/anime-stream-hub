@@ -53,6 +53,11 @@ export const AnimeRow = ({ id, title, eyebrow, items, loading, numbered }: Props
             <div className="mt-3 h-4 bg-secondary rounded animate-pulse w-3/4" />
           </div>
         ))}
+        {!loading && items && items.length === 0 && (
+          <div className="w-full py-10 text-center text-sm text-muted-foreground italic">
+            We couldn't reach the catalog provider for this row. Please refresh in a moment.
+          </div>
+        )}
         {items?.map((a, i) => (
           <div key={a.mal_id} className="snap-start">
             <AnimeCard anime={a} rank={numbered ? i + 1 : undefined} />

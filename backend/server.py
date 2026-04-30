@@ -454,6 +454,351 @@ async def admin_hard_delete_comment(comment_id: str, _: AuthedUser = Depends(req
 
 
 # ---------------------------------------------------------------------------
+# Jikan proxy with TTL cache. Avoids browser-side rate limits / CORS hiccups.
+# Public read-only.
+# ---------------------------------------------------------------------------
+JIKAN_BASE = "https://api.jikan.moe/v4"
+ANILIST_GQL = "https://graphql.anilist.co"
+
+
+# ---------------------------------------------------------------------------
+# AniList fallback — when Jikan is degraded, fetch equivalent lists from AniList
+# and shape the response like Jikan: {"data":[{mal_id, title, ...}, ...]}.
+# ---------------------------------------------------------------------------
+ANILIST_MEDIA_FRAGMENT = """
+  id idMal
+  title { romaji english native }
+  coverImage { extraLarge large }
+  bannerImage
+  averageScore meanScore
+  episodes status format
+  seasonYear
+  description(asHtml:false)
+  genres
+  rankings { rank type allTime }
+"""
+
+
+def _anilist_to_jikan_anime(m: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not m or not m.get("idMal"):
+        return None
+    title = m.get("title") or {}
+    img = m.get("coverImage") or {}
+    cover = img.get("extraLarge") or img.get("large") or m.get("bannerImage") or ""
+    score = m.get("averageScore") or m.get("meanScore")
+    return {
+        "mal_id": m["idMal"],
+        "title": title.get("romaji") or title.get("english") or title.get("native") or "Untitled",
+        "title_english": title.get("english"),
+        "images": {"jpg": {"large_image_url": cover, "image_url": cover}},
+        "score": (score / 10.0) if isinstance(score, (int, float)) and score > 10 else score,
+        "episodes": m.get("episodes"),
+        "year": m.get("seasonYear"),
+        "type": m.get("format"),
+        "status": (m.get("status") or "").replace("_", " ").title() or None,
+        "synopsis": (m.get("description") or "").replace("<br>", "\n").replace("<i>", "").replace("</i>", ""),
+        "genres": [{"name": g} for g in (m.get("genres") or [])],
+    }
+
+
+async def _anilist_query(query: str, variables: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            r = await http.post(ANILIST_GQL,
+                                json={"query": query, "variables": variables},
+                                headers={"Accept": "application/json"})
+        if r.status_code != 200:
+            return None
+        return r.json()
+    except Exception:
+        return None
+
+
+async def _anilist_list(sort: List[str], extra_filter: Optional[str] = None,
+                        per_page: int = 18, page: int = 1) -> Optional[List[Dict[str, Any]]]:
+    extra = f", {extra_filter}" if extra_filter else ""
+    query = f"""
+      query($page:Int,$perPage:Int){{
+        Page(page:$page, perPage:$perPage){{
+          media(type:ANIME, isAdult:false, sort:[{','.join(sort)}]{extra}) {{
+            {ANILIST_MEDIA_FRAGMENT}
+          }}
+        }}
+      }}"""
+    res = await _anilist_query(query, {"page": page, "perPage": per_page})
+    if not res:
+        return None
+    media = (((res.get("data") or {}).get("Page") or {}).get("media") or [])
+    return [m for m in (_anilist_to_jikan_anime(x) for x in media) if m]
+
+
+async def _anilist_for_jikan_path(path: str, request: Request) -> Optional[Dict[str, Any]]:
+    """Map a Jikan-style path → an AniList equivalent. Returns Jikan-shaped data or None."""
+    qp = dict(request.query_params)
+    limit = int(qp.get("limit") or 18)
+    page = int(qp.get("page") or 1)
+
+    if path == "top/anime":
+        f = (qp.get("filter") or "").lower()
+        if f == "airing":
+            data = await _anilist_list(["TRENDING_DESC"],
+                                       extra_filter="status:RELEASING",
+                                       per_page=limit, page=page)
+        else:
+            data = await _anilist_list(["SCORE_DESC"], per_page=limit, page=page)
+        if data is not None:
+            return {"data": data}
+    if path == "seasons/now":
+        data = await _anilist_list(["POPULARITY_DESC"],
+                                   extra_filter="status:RELEASING",
+                                   per_page=limit, page=page)
+        if data is not None:
+            return {"data": data}
+    if path == "seasons/upcoming":
+        data = await _anilist_list(["POPULARITY_DESC"],
+                                   extra_filter="status:NOT_YET_RELEASED",
+                                   per_page=limit, page=page)
+        if data is not None:
+            return {"data": data}
+    if path == "anime":
+        if qp.get("status") == "airing" and qp.get("order_by") == "start_date":
+            data = await _anilist_list(["START_DATE_DESC"],
+                                       extra_filter="status:RELEASING",
+                                       per_page=limit, page=page)
+            if data is not None:
+                return {"data": data}
+        elif qp.get("q"):
+            q = qp["q"]
+            query = f"""
+              query($s:String,$page:Int,$perPage:Int){{
+                Page(page:$page, perPage:$perPage){{
+                  media(type:ANIME, isAdult:false, search:$s, sort:[SEARCH_MATCH]){{
+                    {ANILIST_MEDIA_FRAGMENT}
+                  }}
+                }}
+              }}"""
+            res = await _anilist_query(query, {"s": q, "page": page, "perPage": limit})
+            if res:
+                media = (((res.get("data") or {}).get("Page") or {}).get("media") or [])
+                return {"data": [m for m in (_anilist_to_jikan_anime(x) for x in media) if m]}
+        elif qp.get("genres"):
+            try:
+                # genres param is mal_id ints in Jikan; AniList uses names. Bail.
+                pass
+            except Exception:
+                pass
+            data = await _anilist_list(["SCORE_DESC"], per_page=limit, page=page)
+            if data is not None:
+                return {"data": data}
+        else:
+            data = await _anilist_list(["POPULARITY_DESC"], per_page=limit, page=page)
+            if data is not None:
+                return {"data": data}
+
+    if path.startswith("anime/") and path.endswith("/full"):
+        try:
+            mal_id = int(path.split("/")[1])
+        except Exception:
+            return None
+        query = f"""
+          query($idMal:Int){{
+            Media(type:ANIME, idMal:$idMal){{
+              {ANILIST_MEDIA_FRAGMENT}
+            }}
+          }}"""
+        res = await _anilist_query(query, {"idMal": mal_id})
+        m = ((res or {}).get("data") or {}).get("Media")
+        out = _anilist_to_jikan_anime(m) if m else None
+        if out:
+            return {"data": out}
+
+    return None
+# ---------------------------------------------------------------------------
+
+
+@api_router.get("/jikan/{path:path}")
+async def jikan_proxy(path: str, request: Request):
+    qs = request.url.query
+    cache_key = f"jikan:{path}?{qs}"
+
+    fresh = await _cache_get(cache_key)
+    if fresh is not None:
+        return fresh
+
+    url = f"{JIKAN_BASE}/{path}"
+    last_status = 0
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=15.0,
+                                         headers={"User-Agent": "Lumen/1.0"}) as http:
+                r = await http.get(url, params=dict(request.query_params))
+            last_status = r.status_code
+        except Exception:
+            last_status = 0
+            r = None
+        if r is not None and r.status_code == 200:
+            try:
+                data = r.json()
+            except Exception:
+                data = None
+            # Jikan sometimes returns HTTP 200 with body {"status":500,"type":"Exception"}
+            if isinstance(data, dict) and data.get("type") == "Exception":
+                last_status = int(data.get("status", 500))
+                data = None
+            if data is not None:
+                ttl = 1800  # 30 min
+                if path.startswith("anime/") and ("/episodes" in path or path.endswith("/full")):
+                    ttl = 21600  # 6h for show details
+                elif path.startswith(("top/", "seasons/", "anime")):
+                    ttl = 3600   # 1h for lists
+                await _cache_set(cache_key, data, ttl_seconds=ttl)
+                return data
+        if r is not None and r.status_code == 404:
+            empty = {"data": []}
+            await _cache_set(cache_key, empty, ttl_seconds=300)
+            return empty
+        # 429 / 500 → small backoff & retry once
+        import asyncio
+        await asyncio.sleep(0.7)
+
+    # All retries failed → try AniList fallback
+    al = await _anilist_for_jikan_path(path, request)
+    logger.info("Jikan→AniList fallback for path=%s qp=%s → %s",
+                path, dict(request.query_params),
+                f"{len(al.get('data', []))} items" if isinstance(al, dict) else al)
+    if al is not None:
+        # only cache non-empty fallbacks
+        if al.get("data"):
+            await _cache_set(cache_key, al, ttl_seconds=900)
+        return al
+
+    # Final fallback: serve stale cache if any, else empty
+    stale = await _cache_get(cache_key, allow_stale=True)
+    if stale is not None:
+        return stale
+    logger.warning("Jikan proxy %s failed (last=%s) — returning empty", path, last_status)
+    return {"data": [], "_stale": True, "_upstream_status": last_status}
+
+
+# ---------------------------------------------------------------------------
+# Anikoto resolver: try to map a MAL ID → Anikoto series ID by fuzzy title match.
+# We fetch the Jikan anime title (cached), then walk Anikoto's recent feed
+# (also cached) to find the closest title. Falls back to None.
+# ---------------------------------------------------------------------------
+def _norm_title(s: str) -> str:
+    import re
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return " ".join(s.split())
+
+
+async def _jikan_title(mal_id: int) -> Optional[Dict[str, Any]]:
+    cache_key = f"jikan:anime/{mal_id}/full?"
+    cached = await _cache_get(cache_key)
+    if cached:
+        return (cached.get("data") or {}) if isinstance(cached, dict) else None
+    try:
+        async with httpx.AsyncClient(timeout=15.0,
+                                     headers={"User-Agent": "Lumen/1.0"}) as http:
+            r = await http.get(f"{JIKAN_BASE}/anime/{mal_id}/full")
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        await _cache_set(cache_key, data, ttl_seconds=1800)
+        return data.get("data")
+    except Exception:
+        return None
+
+
+async def _anikoto_recent_pages(max_pages: int = 5) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for p in range(1, max_pages + 1):
+        key = f"anikoto:recent:{p}:50"
+        cached = await _cache_get(key)
+        if cached:
+            data = cached
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=15.0,
+                                             headers={"User-Agent": "Lumen/1.0"}) as http:
+                    r = await http.get(
+                        f"{ANIKOTO_BASE}/recent-anime",
+                        params={"page": p, "per_page": 50},
+                    )
+                if r.status_code != 200:
+                    break
+                data = r.json()
+                await _cache_set(key, data, ttl_seconds=600)
+            except Exception:
+                break
+        rows = data.get("data") if isinstance(data, dict) else None
+        if not rows:
+            break
+        out.extend(rows)
+    return out
+
+
+@api_router.get("/anikoto/resolve")
+async def anikoto_resolve(mal_id: int):
+    """Best-effort MAL → Anikoto series id by fuzzy title match against the recent feed."""
+    cache_key = f"anikoto:resolve:{mal_id}"
+    cached = await _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    info = await _jikan_title(mal_id)
+    if not info:
+        return {"anikoto_id": None, "matched_title": None, "score": 0,
+                "reason": "Jikan info missing"}
+    candidate_titles: List[str] = []
+    for k in ("title", "title_english", "title_japanese"):
+        v = info.get(k)
+        if v:
+            candidate_titles.append(str(v))
+    for syn in info.get("title_synonyms") or []:
+        candidate_titles.append(str(syn))
+    norm_candidates = {_norm_title(t) for t in candidate_titles if t}
+
+    rows = await _anikoto_recent_pages(max_pages=4)
+    best = None
+    best_score = 0.0
+
+    from difflib import SequenceMatcher
+    for row in rows:
+        ani_title = (row.get("title") or row.get("name") or "")
+        ani_norm = _norm_title(ani_title)
+        if not ani_norm:
+            continue
+        # exact match wins
+        if ani_norm in norm_candidates:
+            best = row
+            best_score = 1.0
+            break
+        # fuzzy
+        score = max(
+            SequenceMatcher(None, ani_norm, c).ratio() for c in norm_candidates
+        )
+        if score > best_score:
+            best = row
+            best_score = score
+
+    out: Dict[str, Any]
+    if best and best_score >= 0.78:
+        anikoto_id = best.get("id") or best.get("series_id") or best.get("anikoto_id")
+        out = {
+            "anikoto_id": anikoto_id,
+            "matched_title": best.get("title") or best.get("name"),
+            "score": round(best_score, 3),
+        }
+    else:
+        out = {"anikoto_id": None, "matched_title": None,
+               "score": round(best_score, 3),
+               "reason": "No close match in Anikoto recent feed"}
+    await _cache_set(cache_key, out, ttl_seconds=1800)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Streaming: build embed URL for (mal_id, ep, lang). Source can be:
 #   - "mal":     https://megaplay.buzz/stream/mal/{mal_id}/{ep}/{lang}
 #   - "anikoto": resolve via Anikoto /series/{anikoto_id} → episode_embed_id
@@ -530,11 +875,11 @@ async def get_stream(mal_id: int, ep: int = 1, lang: str = "sub",
 # ---------------------------------------------------------------------------
 # Anikoto proxy (cached). Front-end never hits Anikoto directly.
 # ---------------------------------------------------------------------------
-async def _cache_get(key: str) -> Optional[dict]:
+async def _cache_get(key: str, allow_stale: bool = False) -> Optional[dict]:
     row = await db.proxy_cache.find_one({"key": key})
     if not row:
         return None
-    if row.get("expires_at") and row["expires_at"] < datetime.utcnow():
+    if not allow_stale and row.get("expires_at") and row["expires_at"] < datetime.utcnow():
         return None
     return row.get("data")
 

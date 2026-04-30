@@ -119,7 +119,7 @@ const Auth = () => {
         >
           <Link to="/" className="lg:hidden inline-flex items-center gap-2 mb-8">
             <Sparkles className="w-5 h-5 text-primary" />
-            <span className="font-display text-xl font-semibold">Lumen<span className="text-primary">.</span></span>
+            <span className="font-display text-xl font-semibold">Hey Anime<span className="text-primary">.</span></span>
           </Link>
 
           <Tabs defaultValue="signin">

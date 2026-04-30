@@ -118,6 +118,9 @@ const Auth = () => {
                   Sign in
                 </Button>
               </form>
+              <Link to="/forgot-password" className="block mt-4 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                Forgot your password?
+              </Link>
             </TabsContent>
 
             <TabsContent value="signup">

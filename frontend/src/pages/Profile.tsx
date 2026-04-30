@@ -57,7 +57,7 @@ const Profile = () => {
 
   useEffect(() => {
     if (profile.data) {
-      document.title = `${profile.data.user_name} — Lumen`;
+      document.title = `${profile.data.user_name} — Hey Anime`;
     }
   }, [profile.data]);
 
@@ -70,7 +70,7 @@ const Profile = () => {
     const url = window.location.href;
     try {
       if (navigator.share) {
-        await navigator.share({ url, title: `${profile.data?.user_name} on Lumen` });
+        await navigator.share({ url, title: `${profile.data?.user_name} on Hey Anime` });
       } else {
         await navigator.clipboard.writeText(url);
         toast.success("Profile link copied");

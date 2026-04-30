@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { Search, LogOut, User as UserIcon, Sparkles } from "lucide-react";
+import { Search, LogOut, User as UserIcon, Sparkles, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
@@ -53,6 +53,9 @@ export const Navbar = () => {
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-2 py-1.5 text-xs text-muted-foreground truncate">{user.email}</div>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/dashboard")}>
+                <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => signOut()}>
                 <LogOut className="w-4 h-4 mr-2" /> Sign out
               </DropdownMenuItem>

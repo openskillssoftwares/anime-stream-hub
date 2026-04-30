@@ -6,20 +6,22 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { InteractiveBackground } from "@/components/InteractiveBackground";
 import { SiteFooter } from "@/components/SiteFooter";
-import Index from "./pages/Index.tsx";
-import Watch from "./pages/Watch.tsx";
-import Auth from "./pages/Auth.tsx";
-import Dashboard from "./pages/Dashboard.tsx";
-import Admin from "./pages/Admin.tsx";
-import Browse from "./pages/Browse.tsx";
-import Profile from "./pages/Profile.tsx";
-import ForgotPassword from "./pages/ForgotPassword.tsx";
-import ResetPassword from "./pages/ResetPassword.tsx";
-import DMCA from "./pages/DMCA.tsx";
-import Donation from "./pages/Donation.tsx";
-import Contact from "./pages/Contact.tsx";
-import NotFound from "./pages/NotFound.tsx";
+import { Analytics } from "@vercel/analytics/react";
+import Index from "./pages/Index";
+import Watch from "./pages/Watch";
+import Auth from "./pages/Auth";
+import Dashboard from "./pages/Dashboard";
+import Admin from "./pages/Admin";
+import Browse from "./pages/Browse";
+import Profile from "./pages/Profile";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
+import DMCA from "./pages/DMCA";
+import Donation from "./pages/Donation";
+import Contact from "./pages/Contact";
+import NotFound from "./pages/NotFound";
 import FloatingAIButton from "@/components/FloatingAIButton";
+
 
 const queryClient = new QueryClient();
 
@@ -28,6 +30,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <Analytics />
       <BrowserRouter>
         <AuthProvider>
           <InteractiveBackground />

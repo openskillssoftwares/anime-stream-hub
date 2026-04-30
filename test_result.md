@@ -101,3 +101,160 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Dynamic anime streaming website using megaplay.buzz iframe + Jikan/MAL data.
+  Phase 1 scope (this iteration):
+    - Keep existing Supabase auth (login, register, forgot/reset, change email/pwd, MAL public-username import/export)
+    - Add MongoDB-backed FastAPI for: comments, 5-star ratings, admin moderation
+    - Admin gate: ADMIN_EMAIL=admin@lumen.local
+    - Anime block list (admin can ban a MAL ID; player shows "unavailable" when blocked)
+    - reCAPTCHA v3 + Cloudflare Turnstile stubs (disabled until keys provided)
+    - Lottie hero accent + interactive starfield/ember background
+    - AdSense slot placeholders (real ads load only when VITE_ADSENSE_PUB_ID provided)
+
+backend:
+  - task: "Health & security config endpoints"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/, /api/health, /api/security/config (returns recaptcha_enabled/turnstile_enabled flags). No auth required."
+
+  - task: "Supabase JWT-based auth middleware"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Validates user JWT by calling SUPABASE_URL/auth/v1/user with apikey + Bearer token. /api/me returns AuthedUser (id, email, name, is_admin, is_banned). Admin = email == ADMIN_EMAIL (admin@lumen.local). Endpoints requiring auth must respond 401 on missing/invalid bearer."
+
+  - task: "Comments CRUD"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/comments/{mal_id} (public, hides deleted). POST /api/comments/{mal_id} requires JWT, optional captcha_token (no-op when secrets empty). DELETE /api/comments/{id} for owner OR admin."
+
+  - task: "Ratings (1..5)"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/ratings/{mal_id} returns {avg,count,my_rating}. POST upserts (one per user per anime). Score must be 1..5, anything outside should 422."
+
+  - task: "Anime block check"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/anime/{mal_id}/blocked → {blocked, reason}. Public endpoint. Block managed via /api/admin/anime/ban (POST) and /api/admin/anime/ban/{mal_id} (DELETE)."
+
+  - task: "Admin moderation endpoints"
+    implemented: true
+    working: "NA"
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "/api/admin/stats, /admin/users (list+ban+unban), /admin/anime/banned (list+ban+unban), /admin/comments (list+approve+soft delete+hard delete). All require admin (403 for non-admin users)."
+
+frontend:
+  - task: "Home: trending/new/season/top/upcoming + interactive bg + hero lottie + ad slot"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Index.tsx, components/InteractiveBackground.tsx, components/FlameLottie.tsx, components/AdSlot.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Added New Releases row, AdSlot placeholder mid-page, animated starfield bg, flame Lottie accent in hero. Verified renders in screenshot."
+
+  - task: "Watch: comments + 5-star ratings + block check + ad sidebar"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Watch.tsx, components/CommentsRatings.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Iframe still uses megaplay.buzz/stream/s-2/{malId}/sub. Pre-checks /api/anime/{id}/blocked and shows ban screen if blocked. Comments+ratings component shown below."
+
+  - task: "Admin page /admin"
+    implemented: true
+    working: "NA"
+    file: "frontend/src/pages/Admin.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Tabs: Comments / Users / Anime gate. Stats cards. Auto-redirects non-admins. Navbar shows admin entry only if /api/me is_admin true."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Health & security config endpoints"
+    - "Supabase JWT-based auth middleware"
+    - "Comments CRUD"
+    - "Ratings (1..5)"
+    - "Anime block check"
+    - "Admin moderation endpoints"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: |
+      Phase 1 backend complete. Please test all backend endpoints listed in test_plan.
+      Important details for testing:
+      - Backend uses Supabase JWT validation via SUPABASE_URL/auth/v1/user. To test authenticated endpoints,
+        you need to sign up via Supabase first. Suggested approach:
+        1) POST https://nkpnuyvjotjyvledrrwp.supabase.co/auth/v1/signup with apikey header (anon key from frontend/.env) and JSON {email,password}
+           This returns access_token. Use it as Bearer for /api/me, /api/comments, /api/ratings.
+        2) For ADMIN tests, sign up "admin@lumen.local" → that user becomes admin (ADMIN_EMAIL match).
+        3) For non-admin test, sign up any other email.
+      - Anon key (apikey header) is the one in /app/frontend/.env VITE_SUPABASE_PUBLISHABLE_KEY.
+      - Captcha is disabled (no secrets), so POST comment with no captcha_token must succeed.
+      - Validate that ratings reject score 0 and 6 with 422 (Pydantic conint).
+      - Validate that DELETE /api/comments/{id} by non-owner non-admin returns 403.
+      - Validate that admin endpoints return 403 for non-admin users.
+      - DB name is "lumen_db" — please make sure to use endpoints, not direct DB inserts.

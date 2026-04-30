@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import heroImg from "@/assets/hero-anime.jpg";
 import type { Anime } from "@/lib/jikan";
+import { FlameLottie } from "@/components/FlameLottie";
 
 export const Hero = ({ featured }: { featured?: Anime }) => {
   const bg = featured?.images.jpg.large_image_url || heroImg;
@@ -22,6 +23,15 @@ export const Hero = ({ featured }: { featured?: Anime }) => {
       </div>
 
       <div className="relative h-full container flex flex-col justify-end pb-24 md:pb-32">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.8 }}
+          className="absolute top-24 right-6 hidden md:block"
+          aria-hidden
+        >
+          <FlameLottie size={120} />
+        </motion.div>
         <motion.p
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

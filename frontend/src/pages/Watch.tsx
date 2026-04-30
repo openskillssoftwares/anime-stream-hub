@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { ChevronLeft, Star, Calendar, Tv, AlertTriangle } from "lucide-react";
+import { ChevronLeft, Star, Calendar, Tv, AlertTriangle, Ban } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { jikan } from "@/lib/jikan";
+import { CommentsRatings } from "@/components/CommentsRatings";
+import { AdSlot } from "@/components/AdSlot";
+import { api } from "@/lib/api";
 
 const Watch = () => {
   const { id } = useParams();
@@ -15,6 +18,11 @@ const Watch = () => {
 
   const anime = useQuery({ queryKey: ["anime", id], queryFn: () => jikan.byId(id!), enabled: !!id });
   const eps = useQuery({ queryKey: ["eps", id], queryFn: () => jikan.episodes(id!), enabled: !!id });
+  const blocked = useQuery({
+    queryKey: ["blocked", id],
+    queryFn: () => api.isAnimeBlocked(id!),
+    enabled: !!id,
+  });
 
   useEffect(() => {
     if (anime.data) {
@@ -60,7 +68,15 @@ const Watch = () => {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             {/* Player */}
             <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-cinematic ring-1 ring-border/60">
-              {iframeError ? (
+              {blocked.data?.blocked ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
+                  <Ban className="w-10 h-10 text-destructive" />
+                  <p className="font-display text-2xl">This title is unavailable</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    {blocked.data.reason || "Removed by the moderation team."}
+                  </p>
+                </div>
+              ) : iframeError ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
                   <AlertTriangle className="w-10 h-10 text-primary" />
                   <p className="font-display text-2xl">Stream unavailable</p>
@@ -112,7 +128,7 @@ const Watch = () => {
           </motion.div>
 
           {/* Episodes sidebar */}
-          <aside className="lg:sticky lg:top-24 self-start">
+          <aside className="lg:sticky lg:top-24 self-start space-y-4">
             <div className="rounded-xl bg-card/60 ring-1 ring-border/60 p-4 backdrop-blur">
               <h2 className="font-display text-lg font-semibold mb-3">Episodes</h2>
               <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-1 scrollbar-hide">
@@ -136,8 +152,12 @@ const Watch = () => {
                 })}
               </div>
             </div>
+            <AdSlot slot="watch-side" className="rounded-lg" />
           </aside>
         </div>
+
+        {/* Comments & ratings */}
+        {id && <CommentsRatings malId={id} />}
       </main>
     </div>
   );

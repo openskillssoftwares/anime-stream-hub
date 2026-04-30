@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import heroImg from "@/assets/hero-anime.jpg";
+import { loadRecaptcha, recaptchaConfigured } from "@/lib/captcha";
 
 const schema = z.object({
   email: z.string().trim().email({ message: "Enter a valid email" }).max(255),
@@ -29,6 +30,7 @@ const Auth = () => {
   useEffect(() => {
     document.title = "Sign in — Lumen";
     if (user) navigate("/", { replace: true });
+    if (recaptchaConfigured()) loadRecaptcha().catch(() => {});
   }, [user, navigate]);
 
   const handleSignIn = async (e: React.FormEvent) => {

@@ -28,6 +28,7 @@ export const jikan = {
   topAll: () => get<{ data: Anime[] }>("/top/anime?limit=10").then(r => r.data),
   seasonNow: () => get<{ data: Anime[] }>("/seasons/now?limit=18").then(r => r.data),
   upcoming: () => get<{ data: Anime[] }>("/seasons/upcoming?limit=12").then(r => r.data),
+  newReleases: () => get<{ data: Anime[] }>("/anime?order_by=start_date&sort=desc&status=airing&sfw=true&limit=14").then(r => r.data),
   search: (q: string) => get<{ data: Anime[] }>(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`).then(r => r.data),
   byId: (id: number | string) => get<{ data: Anime }>(`/anime/${id}/full`).then(r => r.data),
   episodes: (id: number | string) => get<{ data: { mal_id: number; title: string; aired?: string }[] }>(`/anime/${id}/episodes`).then(r => r.data),

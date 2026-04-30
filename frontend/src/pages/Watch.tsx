@@ -175,16 +175,29 @@ const Watch = () => {
               <SegmentedToggle
                 label={<><Server className="w-3.5 h-3.5" /> Source</>}
                 value={source}
-                onChange={(v) => {
+                onChange={async (v) => {
                   if (v === "anikoto") {
                     if (!anikotoId) {
-                      const ans = window.prompt(
-                        "Enter Anikoto series ID (numeric, from anikotoapi.site/series/{id}):",
-                        "",
-                      );
-                      const n = ans ? Number(ans) : NaN;
-                      if (!ans || Number.isNaN(n) || n <= 0) return;
-                      setAnikotoId(n);
+                      toast.loading("Finding on Server 2…", { id: "anikoto-resolve" });
+                      try {
+                        const res = await api.anikotoResolve(malId);
+                        if (res.anikoto_id) {
+                          setAnikotoId(res.anikoto_id);
+                          setSource("anikoto");
+                          toast.success(
+                            `Server 2: matched "${res.matched_title}" (${Math.round(res.score * 100)}%)`,
+                            { id: "anikoto-resolve" }
+                          );
+                        } else {
+                          toast.error(
+                            res.reason || "Couldn't find a match on Server 2 for this title.",
+                            { id: "anikoto-resolve" }
+                          );
+                        }
+                      } catch (e) {
+                        toast.error("Server 2 lookup failed. Try again.", { id: "anikoto-resolve" });
+                      }
+                      return;
                     }
                     setSource("anikoto");
                   } else {
@@ -193,7 +206,7 @@ const Watch = () => {
                 }}
                 options={[
                   { value: "mal", label: "Server 1 (MAL)" },
-                  { value: "anikoto", label: anikotoId ? `Server 2 (Anikoto #${anikotoId})` : "Server 2 (Anikoto)" },
+                  { value: "anikoto", label: anikotoId ? `Server 2 (#${anikotoId})` : "Server 2 (Anikoto)" },
                 ]}
               />
               <Button
@@ -256,7 +269,7 @@ const Watch = () => {
                   title="Player"
                   allowFullScreen
                   allow="autoplay; fullscreen; picture-in-picture"
-                  referrerPolicy="no-referrer"
+                  referrerPolicy="origin"
                   className="absolute inset-0 w-full h-full"
                   onError={() => setIframeError(true)}
                 />

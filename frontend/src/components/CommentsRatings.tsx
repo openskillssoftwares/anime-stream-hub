@@ -190,10 +190,18 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
                     >
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-gradient-ember text-primary-foreground grid place-items-center text-xs font-semibold">
-                            {(c.user_name || "?").slice(0, 1).toUpperCase()}
-                          </div>
-                          <span className="text-sm font-medium">{c.user_name || "anon"}</span>
+                          <Link
+                            to={`/profile/${c.user_id}`}
+                            className="flex items-center gap-2 group"
+                            data-testid={`comment-author-${c.user_id}`}
+                          >
+                            <div className="w-7 h-7 rounded-full bg-gradient-ember text-primary-foreground grid place-items-center text-xs font-semibold ring-1 ring-transparent group-hover:ring-primary/60 transition-all">
+                              {(c.user_name || "?").slice(0, 1).toUpperCase()}
+                            </div>
+                            <span className="text-sm font-medium group-hover:text-primary transition-colors">
+                              {c.user_name || "anon"}
+                            </span>
+                          </Link>
                           <span className="text-xs text-muted-foreground">
                             {format(new Date(c.created_at), "MMM d, yyyy 'at' HH:mm")}
                           </span>

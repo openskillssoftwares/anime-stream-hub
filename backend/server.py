@@ -20,6 +20,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, conint, constr
 from typing import List, Optional, Dict, Any
@@ -326,6 +327,151 @@ async def upsert_rating(mal_id: int, payload: RatingIn,
 @api_router.get("/me")
 async def me(user: AuthedUser = Depends(get_current_user)):
     return user.dict()
+
+
+# ---------------------------------------------------------------------------
+# Public profiles — shareable read-only view of any user's activity.
+# Privacy: never returns email; banned users return 404.
+# ---------------------------------------------------------------------------
+class PublicProfileOut(BaseModel):
+    user_id: str
+    user_name: str
+    is_admin: bool
+    joined_at: Optional[str] = None
+    counts: Dict[str, int]
+
+
+class PublicRatingOut(BaseModel):
+    mal_id: int
+    score: int
+    updated_at: Optional[str] = None
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class PublicProgressOut(BaseModel):
+    mal_id: int
+    episode: int
+    percent: float
+    completed: bool
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+async def _resolve_user_name(user_id: str) -> Optional[str]:
+    """Find a user_name from any document where this user has activity."""
+    for coll, sort_field in (
+        ("comments", "created_at"),
+        ("ratings", "updated_at"),
+        ("progress", "updated_at"),
+    ):
+        c = db[coll]
+        row = await c.find_one({"user_id": user_id, "user_name": {"$exists": True}},
+                               sort=[(sort_field, -1)])
+        if row and row.get("user_name"):
+            return row["user_name"]
+    return None
+
+
+@api_router.get("/users/{user_id}/profile", response_model=PublicProfileOut)
+async def public_profile(user_id: str):
+    if await db.banned_users.find_one({"user_id": user_id}):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    name = await _resolve_user_name(user_id)
+    if not name:
+        # Maybe a real user with no activity yet — return a minimal stub so
+        # /profile/me works for fresh accounts.
+        comments = ratings = progress = 0
+    else:
+        comments, ratings, progress = await asyncio.gather(
+            db.comments.count_documents({"user_id": user_id, "deleted": {"$ne": True}}),
+            db.ratings.count_documents({"user_id": user_id}),
+            db.progress.count_documents({"user_id": user_id}),
+        )
+    if not name and not (comments or ratings or progress):
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # First seen ts: oldest activity row across collections.
+    first_ts: Optional[datetime] = None
+    for coll, field in (("comments", "created_at"),
+                        ("ratings", "created_at"),
+                        ("progress", "updated_at")):
+        row = await db[coll].find_one({"user_id": user_id}, sort=[(field, 1)])
+        if row and row.get(field):
+            ts = row[field]
+            if isinstance(ts, datetime) and (first_ts is None or ts < first_ts):
+                first_ts = ts
+
+    return PublicProfileOut(
+        user_id=user_id,
+        user_name=name or "anon",
+        is_admin=False,
+        joined_at=first_ts.isoformat() if first_ts else None,
+        counts={"comments": comments, "ratings": ratings, "progress": progress},
+    )
+
+
+@api_router.get("/users/{user_id}/ratings", response_model=List[PublicRatingOut])
+async def public_user_ratings(user_id: str, limit: int = 50):
+    limit = max(1, min(100, limit))
+    rows = await db.ratings.find({"user_id": user_id}).sort("score", -1).to_list(limit)
+    out: List[PublicRatingOut] = []
+    for r in rows:
+        # Try to enrich with title/poster via the most recent progress row for
+        # the same mal_id (cheaper than re-hitting Jikan for every rating).
+        prog = await db.progress.find_one(
+            {"user_id": user_id, "mal_id": r["mal_id"]},
+            sort=[("updated_at", -1)],
+        )
+        title = (prog or {}).get("title")
+        image_url = (prog or {}).get("image_url")
+        ts = r.get("updated_at") or r.get("created_at")
+        out.append(PublicRatingOut(
+            mal_id=r["mal_id"],
+            score=int(r["score"]),
+            updated_at=ts.isoformat() if isinstance(ts, datetime) else None,
+            title=title,
+            image_url=image_url,
+        ))
+    return out
+
+
+@api_router.get("/users/{user_id}/watchlist", response_model=List[PublicProgressOut])
+async def public_user_watchlist(user_id: str, limit: int = 30):
+    limit = max(1, min(60, limit))
+    rows = await db.progress.find({"user_id": user_id}).sort("updated_at", -1).to_list(limit)
+    out: List[PublicProgressOut] = []
+    seen_mal_ids: set = set()
+    for r in rows:
+        mid = r["mal_id"]
+        if mid in seen_mal_ids:
+            continue  # collapse multiple episode rows of the same anime
+        seen_mal_ids.add(mid)
+        ts = r.get("updated_at")
+        out.append(PublicProgressOut(
+            mal_id=mid,
+            episode=int(r.get("episode", 1)),
+            percent=float(r.get("percent", 0)),
+            completed=bool(r.get("completed", False)),
+            title=r.get("title"),
+            image_url=r.get("image_url"),
+            updated_at=ts.isoformat() if isinstance(ts, datetime) else None,
+        ))
+    return out
+
+
+@api_router.get("/users/{user_id}/comments", response_model=List[CommentOut])
+async def public_user_comments(user_id: str, limit: int = 30):
+    limit = max(1, min(50, limit))
+    rows = await db.comments.find(
+        {"user_id": user_id, "deleted": {"$ne": True}, "approved": {"$ne": False}}
+    ).sort("created_at", -1).to_list(limit)
+    return [CommentOut(**{
+        "id": r["id"], "mal_id": r["mal_id"], "user_id": r["user_id"],
+        "user_name": r.get("user_name", "anon"), "body": r["body"],
+        "created_at": r["created_at"], "approved": r.get("approved", True),
+    }) for r in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -710,10 +856,47 @@ async def _jikan_title(mal_id: int) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def _anikoto_recent_pages(max_pages: int = 5) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+async def _index_anikoto_rows(rows: List[Dict[str, Any]]) -> int:
+    """Persist every (mal_id → anikoto_id) mapping we see into a permanent index.
+    Returns the number of rows indexed."""
+    if not rows:
+        return 0
+    ops = []
+    from pymongo import UpdateOne
+    for row in rows:
+        mid = row.get("mal_id") or row.get("malId")
+        aid = row.get("id") or row.get("series_id") or row.get("anikoto_id")
+        if not mid or not aid:
+            continue
+        try:
+            mid_int = int(str(mid))
+            aid_int = int(str(aid))
+        except (TypeError, ValueError):
+            continue
+        ops.append(UpdateOne(
+            {"mal_id": mid_int},
+            {"$set": {
+                "mal_id": mid_int,
+                "anikoto_id": aid_int,
+                "title": row.get("title") or row.get("name"),
+                "slug": row.get("slug"),
+                "indexed_at": datetime.utcnow(),
+            }},
+            upsert=True,
+        ))
+    if ops:
+        await db.anikoto_mal_index.bulk_write(ops, ordered=False)
+    return len(ops)
+
+
+async def _anikoto_crawl_for_mal(target_mal_id: int, max_pages: int = 60,
+                                 per_page: int = 50) -> Optional[Dict[str, Any]]:
+    """Crawl the Anikoto /recent-anime feed, persisting the MAL→anikoto index
+    as we go. Stops early when the target mal_id is found.
+    Returns the found row or None."""
+    target = int(target_mal_id)
     for p in range(1, max_pages + 1):
-        key = f"anikoto:recent:{p}:50"
+        key = f"anikoto:recent:{p}:{per_page}"
         cached = await _cache_get(key)
         if cached:
             data = cached
@@ -723,78 +906,86 @@ async def _anikoto_recent_pages(max_pages: int = 5) -> List[Dict[str, Any]]:
                                              headers={"User-Agent": "Lumen/1.0"}) as http:
                     r = await http.get(
                         f"{ANIKOTO_BASE}/recent-anime",
-                        params={"page": p, "per_page": 50},
+                        params={"page": p, "per_page": per_page},
                     )
                 if r.status_code != 200:
                     break
                 data = r.json()
-                await _cache_set(key, data, ttl_seconds=600)
+                await _cache_set(key, data, ttl_seconds=3600)
             except Exception:
                 break
         rows = data.get("data") if isinstance(data, dict) else None
         if not rows:
             break
-        out.extend(rows)
-    return out
+        await _index_anikoto_rows(rows)
+        for row in rows:
+            try:
+                if int(str(row.get("mal_id") or 0)) == target:
+                    return row
+            except (TypeError, ValueError):
+                continue
+        pagination = data.get("pagination") if isinstance(data, dict) else None
+        total_pages = (pagination or {}).get("total_pages") if isinstance(pagination, dict) else None
+        if total_pages and p >= int(total_pages):
+            break
+    return None
 
 
 @api_router.get("/anikoto/resolve")
 async def anikoto_resolve(mal_id: int):
-    """Best-effort MAL → Anikoto series id by fuzzy title match against the recent feed."""
-    cache_key = f"anikoto:resolve:{mal_id}"
-    cached = await _cache_get(cache_key)
-    if cached is not None:
-        return cached
+    """Map a MAL ID → Anikoto series ID.
 
-    info = await _jikan_title(mal_id)
-    if not info:
-        return {"anikoto_id": None, "matched_title": None, "score": 0,
-                "reason": "Jikan info missing"}
-    candidate_titles: List[str] = []
-    for k in ("title", "title_english", "title_japanese"):
-        v = info.get(k)
-        if v:
-            candidate_titles.append(str(v))
-    for syn in info.get("title_synonyms") or []:
-        candidate_titles.append(str(syn))
-    norm_candidates = {_norm_title(t) for t in candidate_titles if t}
+    Strategy:
+      1. Exact lookup in our persistent `anikoto_mal_index` (Mongo, populated
+         by every crawl/resolve call). Anikoto rows carry `mal_id` directly,
+         so this is exact & reliable — no fuzzy string matching needed.
+      2. Cache miss → incrementally crawl the /recent-anime feed, persisting
+         every (mal_id → anikoto_id) we see along the way, stopping as soon
+         as we hit the target.
+      3. Give up after `max_pages` (covers ~3k most recent entries).
+    """
+    mid = int(mal_id)
 
-    rows = await _anikoto_recent_pages(max_pages=4)
-    best = None
-    best_score = 0.0
-
-    from difflib import SequenceMatcher
-    for row in rows:
-        ani_title = (row.get("title") or row.get("name") or "")
-        ani_norm = _norm_title(ani_title)
-        if not ani_norm:
-            continue
-        # exact match wins
-        if ani_norm in norm_candidates:
-            best = row
-            best_score = 1.0
-            break
-        # fuzzy
-        score = max(
-            SequenceMatcher(None, ani_norm, c).ratio() for c in norm_candidates
-        )
-        if score > best_score:
-            best = row
-            best_score = score
-
-    out: Dict[str, Any]
-    if best and best_score >= 0.78:
-        anikoto_id = best.get("id") or best.get("series_id") or best.get("anikoto_id")
-        out = {
-            "anikoto_id": anikoto_id,
-            "matched_title": best.get("title") or best.get("name"),
-            "score": round(best_score, 3),
+    # 1) Direct index hit
+    hit = await db.anikoto_mal_index.find_one({"mal_id": mid}, {"_id": 0})
+    if hit and hit.get("anikoto_id"):
+        return {
+            "anikoto_id": int(hit["anikoto_id"]),
+            "matched_title": hit.get("title"),
+            "score": 1.0,
+            "source": "index",
         }
-    else:
-        out = {"anikoto_id": None, "matched_title": None,
-               "score": round(best_score, 3),
-               "reason": "No close match in Anikoto recent feed"}
-    await _cache_set(cache_key, out, ttl_seconds=1800)
+
+    # 2) Negative cache (so we don't re-crawl every call for titles
+    #    Anikoto genuinely doesn't have).
+    neg_key = f"anikoto:resolve:miss:{mid}"
+    neg = await _cache_get(neg_key)
+    if neg is not None:
+        return neg
+
+    # 3) Crawl
+    found = await _anikoto_crawl_for_mal(mid, max_pages=60, per_page=50)
+    if found:
+        anikoto_id = found.get("id") or found.get("series_id") or found.get("anikoto_id")
+        try:
+            anikoto_id_int = int(str(anikoto_id))
+        except (TypeError, ValueError):
+            anikoto_id_int = None
+        if anikoto_id_int:
+            return {
+                "anikoto_id": anikoto_id_int,
+                "matched_title": found.get("title") or found.get("name"),
+                "score": 1.0,
+                "source": "crawl",
+            }
+
+    out = {
+        "anikoto_id": None,
+        "matched_title": None,
+        "score": 0,
+        "reason": "MAL ID not found in Anikoto catalog (scanned recent feed).",
+    }
+    await _cache_set(neg_key, out, ttl_seconds=6 * 3600)  # 6h negative TTL
     return out
 
 
@@ -1036,6 +1227,8 @@ async def _startup():
     await db.progress.create_index([("user_id", 1), ("updated_at", -1)])
     await db.proxy_cache.create_index("key", unique=True)
     await db.proxy_cache.create_index("expires_at", expireAfterSeconds=0)
+    await db.anikoto_mal_index.create_index("mal_id", unique=True)
+    await db.anikoto_mal_index.create_index("anikoto_id")
     logger.info("Lumen API ready. Admin email: %s", ADMIN_EMAIL)
 
 

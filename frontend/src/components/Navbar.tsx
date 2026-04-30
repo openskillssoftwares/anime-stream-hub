@@ -22,7 +22,7 @@ export const Navbar = () => {
 
   const onSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (q.trim()) navigate(`/?q=${encodeURIComponent(q.trim())}`);
+    if (q.trim()) navigate(`/browse?q=${encodeURIComponent(q.trim())}`);
   };
 
   return (
@@ -35,6 +35,7 @@ export const Navbar = () => {
 
         <nav className="hidden md:flex items-center gap-5 text-sm text-muted-foreground">
           <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
+          <Link to="/browse" className="hover:text-foreground transition-colors" data-testid="nav-browse">Browse</Link>
           <a href="/#trending" className="hover:text-foreground transition-colors">Trending</a>
           <a href="/#new" className="hover:text-foreground transition-colors">New</a>
           <a href="/#season" className="hover:text-foreground transition-colors">This Season</a>
@@ -64,6 +65,9 @@ export const Navbar = () => {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => navigate("/dashboard")}>
                 <LayoutDashboard className="w-4 h-4 mr-2" /> Dashboard
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => user && navigate(`/profile/${user.id}`)} data-testid="nav-my-profile">
+                <UserIcon className="w-4 h-4 mr-2" /> My profile
               </DropdownMenuItem>
               {isAdmin && (
                 <DropdownMenuItem onClick={() => navigate("/admin")}>

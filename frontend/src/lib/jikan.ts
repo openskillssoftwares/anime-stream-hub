@@ -76,6 +76,38 @@ export const jikan = {
   },
   genres: () =>
     fetch(`${BASE}/genres/anime`).then((r) => r.json()).then(
-      (j: { data?: { mal_id: number; name: string; count?: number }[] }) => j?.data || [],
-    ).catch(() => [] as { mal_id: number; name: string; count?: number }[]),
+      (j: { data?: { mal_id: number; name: string; count?: number }[] }) => {
+        const list = j?.data || [];
+        return list.length > 0 ? list : FALLBACK_GENRES;
+      },
+    ).catch(() => FALLBACK_GENRES),
 };
+
+// Hard-coded list of common MAL genre IDs as a resilience fallback for when
+// Jikan returns 500 and AniList GraphQL doesn't expose Jikan-compatible IDs.
+const FALLBACK_GENRES: { mal_id: number; name: string }[] = [
+  { mal_id: 1, name: "Action" },
+  { mal_id: 2, name: "Adventure" },
+  { mal_id: 4, name: "Comedy" },
+  { mal_id: 8, name: "Drama" },
+  { mal_id: 10, name: "Fantasy" },
+  { mal_id: 14, name: "Horror" },
+  { mal_id: 7, name: "Mystery" },
+  { mal_id: 22, name: "Romance" },
+  { mal_id: 24, name: "Sci-Fi" },
+  { mal_id: 36, name: "Slice of Life" },
+  { mal_id: 30, name: "Sports" },
+  { mal_id: 37, name: "Supernatural" },
+  { mal_id: 41, name: "Suspense" },
+  { mal_id: 27, name: "Shounen" },
+  { mal_id: 25, name: "Shoujo" },
+  { mal_id: 42, name: "Seinen" },
+  { mal_id: 43, name: "Josei" },
+  { mal_id: 18, name: "Mecha" },
+  { mal_id: 38, name: "Military" },
+  { mal_id: 19, name: "Music" },
+  { mal_id: 40, name: "Psychological" },
+  { mal_id: 17, name: "Martial Arts" },
+  { mal_id: 23, name: "School" },
+  { mal_id: 62, name: "Isekai" },
+];

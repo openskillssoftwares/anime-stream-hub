@@ -120,13 +120,34 @@ export const api = {
     ),
   anikotoSeries: (id: number) =>
     req<{ ok?: boolean; anime?: unknown; episodes?: unknown[] }>(`/anikoto/series/${id}`),
+  anikotoResolve: (mal_id: number | string) =>
+    req<{ anikoto_id: number | null; matched_title: string | null; score: number; reason?: string }>(
+      `/anikoto/resolve?mal_id=${mal_id}`
+    ),
 
-  // progress
+  // ---- progress ----
   saveProgress: (p: ProgressIn) =>
     req<{ ok: boolean }>("/progress", { method: "POST", body: JSON.stringify(p) }),
   myProgress: (limit = 20) => req<ProgressRow[]>(`/progress/me?limit=${limit}`),
   deleteProgress: (mal_id: number | string) =>
     req<{ ok: boolean }>(`/progress/${mal_id}`, { method: "DELETE" }),
+
+  // ---- public profiles ----
+  publicProfile: (userId: string) => req<{
+    user_id: string; user_name: string; is_admin: boolean;
+    joined_at: string | null;
+    counts: { comments: number; ratings: number; progress: number };
+  }>(`/users/${userId}/profile`),
+  publicUserRatings: (userId: string, limit = 50) =>
+    req<{ mal_id: number; score: number; updated_at: string | null;
+          title: string | null; image_url: string | null }[]>(
+      `/users/${userId}/ratings?limit=${limit}`),
+  publicUserWatchlist: (userId: string, limit = 30) =>
+    req<{ mal_id: number; episode: number; percent: number; completed: boolean;
+          title: string | null; image_url: string | null; updated_at: string | null }[]>(
+      `/users/${userId}/watchlist?limit=${limit}`),
+  publicUserComments: (userId: string, limit = 30) =>
+    req<CommentOut[]>(`/users/${userId}/comments?limit=${limit}`),
 
   listComments: (malId: number | string) => req<CommentOut[]>(`/comments/${malId}`),
   addComment: (malId: number | string, body: string, captcha_token?: string) =>

@@ -32,7 +32,9 @@ export interface CommentOut {
   user_id: string;
   user_name: string;
   body: string;
+  parent_id?: string | null;
   created_at: string;
+  edited_at?: string | null;
   approved: boolean;
 }
 export interface RatingStats {
@@ -175,8 +177,10 @@ export const api = {
     req<CommentOut[]>(`/users/${userId}/comments?limit=${limit}`),
 
   listComments: (malId: number | string) => req<CommentOut[]>(`/comments/${malId}`),
-  addComment: (malId: number | string, body: string) =>
-    req<CommentOut>(`/comments/${malId}`, { method: "POST", body: JSON.stringify({ body }) }),
+  addComment: (malId: number | string, body: string, parent_id?: string | null) =>
+    req<CommentOut>(`/comments/${malId}`, { method: "POST", body: JSON.stringify({ body, parent_id }) }),
+  editComment: (id: string, body: string) =>
+    req<CommentOut>(`/comments/${id}`, { method: "PUT", body: JSON.stringify({ body }) }),
   deleteComment: (id: string) => req<{ ok: boolean }>(`/comments/${id}`, { method: "DELETE" }),
 
   getRating: (malId: number | string) => req<RatingStats>(`/ratings/${malId}`),

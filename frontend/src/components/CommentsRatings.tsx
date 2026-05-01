@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Send, Loader2, Trash2, Shield, MessageSquare } from "lucide-react";
+import { Star, Send, Loader2, Trash2, Shield, MessageSquare, Edit3, CornerUpLeft } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,11 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [meIsAdmin, setMeIsAdmin] = useState(false);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -67,6 +72,41 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
       toast.error(e instanceof Error ? e.message : "Failed to post");
     } finally {
       setPosting(false);
+    }
+  };
+
+  const submitReply = async (parent_id: string) => {
+    if (!user) { toast.error("Sign in to reply"); return; }
+    const body = (replyDrafts[parent_id] || "").trim();
+    if (!body) return;
+    try {
+      const c = await api.addComment(malId, body, parent_id);
+      setComments((prev) => [c, ...prev]);
+      setReplyDrafts((s) => ({ ...s, [parent_id]: "" }));
+      setReplyingTo(null);
+      toast.success("Reply posted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to post reply");
+    }
+  };
+
+  const startEdit = (c: CommentOut) => {
+    setEditingId(c.id);
+    setEditDraft(c.body);
+  };
+
+  const saveEdit = async (id: string) => {
+    if (!user) { toast.error("Sign in to edit"); return; }
+    const body = editDraft.trim();
+    if (!body) return;
+    try {
+      const updated = await api.editComment(id, body);
+      setComments((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      setEditingId(null);
+      setEditDraft("");
+      toast.success("Comment updated");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update");
     }
   };
 
@@ -195,13 +235,58 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
                             </span>
                           )}
                         </div>
-                        {canDelete && (
-                          <Button variant="ghost" size="icon" onClick={() => removeComment(c.id)} className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {user && (
+                            <Button variant="ghost" size="icon" onClick={() => setReplyingTo(c.id)} className="h-7 w-7 text-muted-foreground hover:text-primary">
+                              <CornerUpLeft className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                          {isMine && (
+                            editingId === c.id ? (
+                              <>
+                                <Button variant="ghost" size="icon" onClick={() => saveEdit(c.id)} className="h-7 w-7 text-muted-foreground hover:text-primary">
+                                  <Send className="w-3.5 h-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setEditingId(null); setEditDraft(""); }} className="h-7 w-7 text-muted-foreground hover:text-muted-foreground/80">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </>
+                            ) : (
+                              <Button variant="ghost" size="icon" onClick={() => startEdit(c)} className="h-7 w-7 text-muted-foreground hover:text-primary">
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </Button>
+                            )
+                          )}
+                          {canDelete && (
+                            <Button variant="ghost" size="icon" onClick={() => removeComment(c.id)} className="h-7 w-7 text-muted-foreground hover:text-destructive">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-sm text-foreground/90 whitespace-pre-wrap">{c.body}</p>
+
+                      {editingId === c.id ? (
+                        <div className="mt-2">
+                          <Textarea value={editDraft} onChange={(e) => setEditDraft(e.target.value)} rows={3} className="bg-secondary/40 border-border/60 resize-none" />
+                        </div>
+                      ) : (
+                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{c.body}</p>
+                      )}
+
+                      {replyingTo === c.id && (
+                        <div className="mt-3">
+                          <Textarea value={replyDrafts[c.id] || ""} onChange={(e) => setReplyDrafts((s) => ({ ...s, [c.id]: e.target.value }))} rows={2} className="bg-secondary/40 border-border/60 resize-none" />
+                          <div className="mt-2 flex gap-2 justify-end">
+                            <Button onClick={() => { setReplyDrafts((s) => ({ ...s, [c.id]: "" })); setReplyingTo(null); }} variant="ghost">Cancel</Button>
+                            <Button onClick={() => submitReply(c.id)} className="bg-gradient-ember text-primary-foreground">Reply</Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {c.parent_id && (
+                        <div className="mt-3 text-xs text-muted-foreground">In reply to a comment</div>
+                      )}
+
                     </motion.div>
                   );
                 })

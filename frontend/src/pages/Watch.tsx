@@ -56,12 +56,12 @@ const Watch = () => {
     queryKey: ["stream", id, episode, lang, source, anikotoId],
     queryFn: () => api.getStream(malId, episode, lang, source, anikotoId),
     enabled: !!id && !blocked.data?.blocked && (source !== "anikoto" || !!anikotoId),
-    retry: 1,
+    retry: 0,
   });
 
   useEffect(() => {
     if (anime.data) {
-      document.title = `${anime.data.title_english || anime.data.title} — Hey Anime`;
+      document.title = `${anime.data.title_english || anime.data.title} — Lumen`;
     }
   }, [anime.data]);
 
@@ -73,6 +73,22 @@ const Watch = () => {
                  (_, i) => ({ mal_id: i + 1, title: `Episode ${i + 1}` }));
 
   const totalEpisodes = episodeList.length;
+
+  useEffect(() => {
+    if (!Number.isFinite(episode) || episode < 1) {
+      setEpisode(1);
+      return;
+    }
+    if (totalEpisodes > 0 && episode > totalEpisodes) {
+      setEpisode(totalEpisodes);
+    }
+  }, [episode, totalEpisodes]);
+
+  useEffect(() => {
+    if (!stream.error || source !== "anikoto") return;
+    toast.warning("Episode unavailable on Server 2. Switched to Server 1.");
+    setSource("mal");
+  }, [stream.error, source]);
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);

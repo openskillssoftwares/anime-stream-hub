@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/hooks/useAuth";
 import heroImg from "@/assets/hero-anime.jpg";
+import { api } from "@/lib/api";
 
 const schema = z.object({
   email: z.string().trim().email({ message: "Enter a valid email" }).max(255),
@@ -41,25 +42,34 @@ const Auth = () => {
     setLoading(true);
     try {
       if (kind === "signin") {
-        const result = await supabase.auth.signInWithPassword({
+        const result = await api.authSignIn({
           email: parsed.data.email,
           password: parsed.data.password,
         });
 
-        const session = result.data.session;
+        const session = result.session;
         if (!session?.access_token || !session?.refresh_token) {
           throw new Error("Sign-in failed: session not returned.");
         }
 
+        await supabase.auth.setSession({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        });
+
         toast.success("Welcome back");
         navigate("/dashboard", { replace: true });
       } else {
-        const result = await supabase.auth.signUp({
+        const result = await api.authSignUp({
           email: parsed.data.email,
           password: parsed.data.password,
         });
 
-        if (result.data.session?.access_token && result.data.session?.refresh_token) {
+        if (result.session?.access_token && result.session?.refresh_token) {
+          await supabase.auth.setSession({
+            access_token: result.session.access_token,
+            refresh_token: result.session.refresh_token,
+          });
           toast.success("Account created — you're in.");
           navigate("/dashboard", { replace: true });
         } else {

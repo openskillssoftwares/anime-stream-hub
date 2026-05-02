@@ -1,4 +1,4 @@
-// Lumen backend API client. Use Vite env `VITE_BACKEND_URL`.
+// Hey Anime backend API client. Use Vite env `VITE_BACKEND_URL`.
 import { supabase } from "@/integrations/supabase/client";
 
 const BASE = (import.meta.env.VITE_BACKEND_URL as string) || "";

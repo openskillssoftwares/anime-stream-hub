@@ -16,7 +16,7 @@ const ResetPassword = () => {
   const [hasSession, setHasSession] = useState(false);
   const navigate = useNavigate();
 
-  useEffect(() => { document.title = "Choose a new password — Lumen"; }, []);
+  useEffect(() => { document.title = "Choose a new password — Hey Anime"; }, []);
 
   useEffect(() => {
     // Supabase puts a recovery session in place automatically when arriving via the email link.
@@ -45,7 +45,7 @@ const ResetPassword = () => {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="w-full max-w-md">
         <Link to="/" className="inline-flex items-center gap-2 mb-8">
           <Sparkles className="w-5 h-5 text-primary" />
-          <span className="font-display text-xl font-semibold">Lumen<span className="text-primary">.</span></span>
+          <span className="font-display text-xl font-semibold">Hey Anime<span className="text-primary">.</span></span>
         </Link>
         <h1 className="font-display text-3xl font-semibold mb-2">Choose a new password</h1>
         <p className="text-sm text-muted-foreground mb-6">

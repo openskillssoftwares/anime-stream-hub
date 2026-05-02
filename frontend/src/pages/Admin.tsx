@@ -32,7 +32,7 @@ const Admin = () => {
   const [noticeTitle, setNoticeTitle] = useState("");
   const [noticeBody, setNoticeBody] = useState("");
 
-  useEffect(() => { document.title = "Admin — Lumen"; }, []);
+  useEffect(() => { document.title = "Admin — Hey Anime"; }, []);
 
   useEffect(() => {
     if (authLoading) return;
@@ -131,7 +131,7 @@ const Admin = () => {
       <main className="container pt-28 pb-24">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
           <p className="text-xs uppercase tracking-[0.3em] text-primary mb-3 flex items-center gap-2"><ShieldCheck className="w-3.5 h-3.5" /> Admin console</p>
-          <h1 className="font-display text-4xl md:text-5xl font-semibold">Manage Lumen</h1>
+          <h1 className="font-display text-4xl md:text-5xl font-semibold">Manage Hey Anime</h1>
           <p className="mt-3 text-muted-foreground max-w-xl">Review activity, moderate community contributions and gate content.</p>
         </motion.div>
 

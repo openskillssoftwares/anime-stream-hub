@@ -61,16 +61,32 @@ const Watch = () => {
 
   useEffect(() => {
     if (anime.data) {
-      document.title = `${anime.data.title_english || anime.data.title} — Lumen`;
+      document.title = `${anime.data.title_english || anime.data.title} — Hey Anime`;
     }
   }, [anime.data]);
 
   useEffect(() => { setIframeError(false); }, [episode, id, lang, source]);
 
-  const episodeList = eps.data && eps.data.length > 0
-    ? eps.data
-    : Array.from({ length: anime.data?.episodes || 12 },
-                 (_, i) => ({ mal_id: i + 1, title: `Episode ${i + 1}` }));
+  const episodeList = (() => {
+    const hasApiEps = Array.isArray(eps.data) && eps.data.length > 0;
+    const status = (anime.data?.status || "").toString();
+    const isUpcoming = /not yet aired|upcoming/i.test(status);
+
+    if (hasApiEps) {
+      return eps.data.filter((ep) => {
+        if (!ep || !ep.aired) return true;
+        const d = new Date(ep.aired);
+        return isNaN(d.getTime()) ? true : d.getTime() <= Date.now();
+      });
+    }
+
+    // Don't synthesize placeholder episodes for titles that haven't aired yet
+    if (!isUpcoming && typeof anime.data?.episodes === "number" && anime.data.episodes > 0) {
+      return Array.from({ length: anime.data.episodes }, (_, i) => ({ mal_id: i + 1, title: `Episode ${i + 1}` }));
+    }
+
+    return [] as { mal_id: number; title?: string; aired?: string }[];
+  })();
 
   const totalEpisodes = episodeList.length;
 

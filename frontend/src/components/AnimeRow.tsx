@@ -58,11 +58,15 @@ export const AnimeRow = ({ id, title, eyebrow, items, loading, numbered }: Props
             We couldn't reach the catalog provider for this row. Please refresh in a moment.
           </div>
         )}
-        {items?.map((a, i) => (
-          <div key={`${a.mal_id}-${i}`} className="snap-start">
-            <AnimeCard anime={a} rank={numbered ? i + 1 : undefined} />
-          </div>
-        ))}
+        {(() => {
+          if (!items) return null;
+          const unique = Array.from(new Map(items.map((it) => [it.mal_id, it])).values());
+          return unique.map((a, i) => (
+            <div key={a.mal_id} className="snap-start">
+              <AnimeCard anime={a} rank={numbered ? i + 1 : undefined} />
+            </div>
+          ));
+        })()}
       </div>
     </section>
   );

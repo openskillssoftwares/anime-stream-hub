@@ -1,13 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Send, Loader2, Trash2, Shield, MessageSquare, Edit3, CornerUpLeft } from "lucide-react";
+import { Star, Send, Loader2, Trash2, Shield, MessageSquare, Edit3, CornerUpLeft, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "react-router-dom";
 import { api, type CommentOut, type RatingStats } from "@/lib/api";
-import { format } from "date-fns";
 
 export const CommentsRatings = ({ malId }: { malId: number | string }) => {
   const { user } = useAuth();
@@ -122,6 +121,180 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
 
   const display = hover || stats.my_rating || 0;
 
+  const commentTree = useMemo(() => {
+    const sorted = [...comments].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const children = new Map<string, CommentOut[]>();
+    const roots: CommentOut[] = [];
+
+    for (const comment of sorted) {
+      if (comment.parent_id) {
+        const siblings = children.get(comment.parent_id) || [];
+        siblings.push(comment);
+        children.set(comment.parent_id, siblings);
+      } else {
+        roots.push(comment);
+      }
+    }
+
+    return { roots, children };
+  }, [comments]);
+
+  const renderComment = (comment: CommentOut, depth = 0): JSX.Element => {
+    const replies = commentTree.children.get(comment.id) || [];
+    const isMine = user && user.id === comment.user_id;
+    const canDelete = isMine || meIsAdmin;
+    const isEditing = editingId === comment.id;
+    const isReplying = replyingTo === comment.id;
+
+    return (
+      <motion.div
+        key={comment.id}
+        layout
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, x: -8 }}
+        className={`p-4 rounded-lg bg-card/50 ring-1 ring-border/50 ${depth > 0 ? "ml-6 border-l border-border/40 pl-4" : ""}`}
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              to={`/profile/${comment.user_id}`}
+              className="flex items-center gap-2 group"
+              data-testid={`comment-author-${comment.user_id}`}
+            >
+              <div className="w-7 h-7 rounded-full bg-gradient-ember text-primary-foreground grid place-items-center text-xs font-semibold ring-1 ring-transparent group-hover:ring-primary/60 transition-all">
+                {(comment.user_name || "?").slice(0, 1).toUpperCase()}
+              </div>
+              <span className="text-sm font-medium group-hover:text-primary transition-colors">
+                {comment.user_name || "anon"}
+              </span>
+            </Link>
+            <span className="text-xs text-muted-foreground">
+              {new Date(comment.created_at).toLocaleString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+            {comment.edited_at && (
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">edited</span>
+            )}
+            {meIsAdmin && !isMine && (
+              <span className="text-[10px] uppercase tracking-widest text-accent flex items-center gap-1">
+                <Shield className="w-3 h-3" />
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {user && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setReplyingTo((current) => (current === comment.id ? null : comment.id))}
+                className="h-7 w-7 text-muted-foreground hover:text-primary"
+                title="Reply"
+              >
+                <CornerUpLeft className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            {isMine && !isEditing && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => startEdit(comment)}
+                className="h-7 w-7 text-muted-foreground hover:text-primary"
+                title="Edit"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => removeComment(comment.id)}
+                className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                title="Delete"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {isEditing ? (
+          <div className="mt-2 space-y-2">
+            <Textarea
+              value={editDraft}
+              onChange={(e) => setEditDraft(e.target.value)}
+              rows={3}
+              className="bg-secondary/40 border-border/60 resize-none"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setEditingId(null);
+                  setEditDraft("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => saveEdit(comment.id)} className="bg-gradient-ember text-primary-foreground">
+                Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-foreground/90 whitespace-pre-wrap">{comment.body}</p>
+        )}
+
+        {isReplying && user && (
+          <div className="mt-3 space-y-2">
+            <Textarea
+              value={replyDrafts[comment.id] || ""}
+              onChange={(e) => setReplyDrafts((state) => ({ ...state, [comment.id]: e.target.value }))}
+              rows={2}
+              className="bg-secondary/40 border-border/60 resize-none"
+              placeholder={`Reply to ${comment.user_name || "this comment"}...`}
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setReplyDrafts((state) => ({ ...state, [comment.id]: "" }));
+                  setReplyingTo(null);
+                }}
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancel
+              </Button>
+              <Button type="button" onClick={() => submitReply(comment.id)} className="bg-gradient-ember text-primary-foreground">
+                <Send className="w-4 h-4 mr-2" />
+                Reply
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {replies.length > 0 && (
+          <div className="mt-3 space-y-3">
+            {replies.map((reply) => renderComment(reply, depth + 1))}
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
   return (
     <section className="mt-12 border-t border-border/40 pt-10">
       <h2 className="font-display text-2xl md:text-3xl font-semibold mb-6">Community</h2>
@@ -197,99 +370,10 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
 
           <div className="space-y-3">
             <AnimatePresence initial={false}>
-              {comments.length === 0 ? (
+              {commentTree.roots.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic">No comments yet — be first.</p>
               ) : (
-                comments.map((c) => {
-                  const isMine = user && user.id === c.user_id;
-                  const canDelete = isMine || meIsAdmin;
-                  return (
-                    <motion.div
-                      key={c.id}
-                      layout
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: -8 }}
-                      className="p-4 rounded-lg bg-card/50 ring-1 ring-border/50"
-                    >
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            to={`/profile/${c.user_id}`}
-                            className="flex items-center gap-2 group"
-                            data-testid={`comment-author-${c.user_id}`}
-                          >
-                            <div className="w-7 h-7 rounded-full bg-gradient-ember text-primary-foreground grid place-items-center text-xs font-semibold ring-1 ring-transparent group-hover:ring-primary/60 transition-all">
-                              {(c.user_name || "?").slice(0, 1).toUpperCase()}
-                            </div>
-                            <span className="text-sm font-medium group-hover:text-primary transition-colors">
-                              {c.user_name || "anon"}
-                            </span>
-                          </Link>
-                          <span className="text-xs text-muted-foreground">
-                            {format(new Date(c.created_at), "MMM d, yyyy 'at' HH:mm")}
-                          </span>
-                          {meIsAdmin && !isMine && (
-                            <span className="text-[10px] uppercase tracking-widest text-accent flex items-center gap-1">
-                              <Shield className="w-3 h-3" />
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {user && (
-                            <Button variant="ghost" size="icon" onClick={() => setReplyingTo(c.id)} className="h-7 w-7 text-muted-foreground hover:text-primary">
-                              <CornerUpLeft className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                          {isMine && (
-                            editingId === c.id ? (
-                              <>
-                                <Button variant="ghost" size="icon" onClick={() => saveEdit(c.id)} className="h-7 w-7 text-muted-foreground hover:text-primary">
-                                  <Send className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button variant="ghost" size="icon" onClick={() => { setEditingId(null); setEditDraft(""); }} className="h-7 w-7 text-muted-foreground hover:text-muted-foreground/80">
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
-                              </>
-                            ) : (
-                              <Button variant="ghost" size="icon" onClick={() => startEdit(c)} className="h-7 w-7 text-muted-foreground hover:text-primary">
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </Button>
-                            )
-                          )}
-                          {canDelete && (
-                            <Button variant="ghost" size="icon" onClick={() => removeComment(c.id)} className="h-7 w-7 text-muted-foreground hover:text-destructive">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      {editingId === c.id ? (
-                        <div className="mt-2">
-                          <Textarea value={editDraft} onChange={(e) => setEditDraft(e.target.value)} rows={3} className="bg-secondary/40 border-border/60 resize-none" />
-                        </div>
-                      ) : (
-                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{c.body}</p>
-                      )}
-
-                      {replyingTo === c.id && (
-                        <div className="mt-3">
-                          <Textarea value={replyDrafts[c.id] || ""} onChange={(e) => setReplyDrafts((s) => ({ ...s, [c.id]: e.target.value }))} rows={2} className="bg-secondary/40 border-border/60 resize-none" />
-                          <div className="mt-2 flex gap-2 justify-end">
-                            <Button onClick={() => { setReplyDrafts((s) => ({ ...s, [c.id]: "" })); setReplyingTo(null); }} variant="ghost">Cancel</Button>
-                            <Button onClick={() => submitReply(c.id)} className="bg-gradient-ember text-primary-foreground">Reply</Button>
-                          </div>
-                        </div>
-                      )}
-
-                      {c.parent_id && (
-                        <div className="mt-3 text-xs text-muted-foreground">In reply to a comment</div>
-                      )}
-
-                    </motion.div>
-                  );
-                })
+                commentTree.roots.map((comment) => renderComment(comment))
               )}
             </AnimatePresence>
           </div>

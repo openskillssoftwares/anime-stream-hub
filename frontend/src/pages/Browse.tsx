@@ -30,7 +30,7 @@ const Browse = () => {
     (params.get("genres") || "").split(",").map((s) => Number(s)).filter(Boolean));
   const [page, setPage] = useState(Number(params.get("page") || 1));
 
-  useEffect(() => { document.title = "Browse — Lumen"; }, []);
+  useEffect(() => { document.title = "Browse — Hey Anime"; }, []);
 
   // sync url
   useEffect(() => {

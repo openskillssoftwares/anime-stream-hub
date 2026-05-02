@@ -14,9 +14,9 @@ const Index = () => {
   const q = params.get("q") || "";
 
   useEffect(() => {
-    document.title = "HeyAnime — Watch free animes now. No sign up required.";
+    document.title = "Hey Anime — Stream anime, track progress, join the discussion";
     const meta = document.querySelector('meta[name="description"]');
-    if (meta) meta.setAttribute("content", "100% Free Stream trending, top-rated and seasonal anime in a cinematic editorial experience.");
+    if (meta) meta.setAttribute("content", "Stream trending, top-rated and seasonal anime in a cinematic editorial experience.");
   }, []);
 
   const trending = useQuery({ queryKey: ["trending"], queryFn: jikan.topAiring, staleTime: 5 * 60_000 });

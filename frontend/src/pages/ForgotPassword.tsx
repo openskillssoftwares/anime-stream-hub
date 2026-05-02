@@ -15,7 +15,7 @@ const ForgotPassword = () => {
   const [sent, setSent] = useState(false);
   const navigate = useNavigate();
 
-  useEffect(() => { document.title = "Forgot password — Lumen"; }, []);
+  useEffect(() => { document.title = "Forgot password — Hey Anime"; }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,7 +35,7 @@ const ForgotPassword = () => {
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="w-full max-w-md">
         <Link to="/" className="inline-flex items-center gap-2 mb-8">
           <Sparkles className="w-5 h-5 text-primary" />
-          <span className="font-display text-xl font-semibold">Lumen<span className="text-primary">.</span></span>
+          <span className="font-display text-xl font-semibold">Hey Anime<span className="text-primary">.</span></span>
         </Link>
         <h1 className="font-display text-3xl font-semibold mb-2">Reset your password</h1>
         <p className="text-sm text-muted-foreground mb-6">We'll email you a secure link to choose a new password.</p>

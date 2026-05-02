@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { fetchMalList, toDbStatus, buildMalXml, downloadFile } from "@/lib/mal";
+import { api, type ProgressRow } from "@/lib/api";
 
 interface Profile {
   display_name: string | null;
@@ -41,6 +43,12 @@ const Dashboard = () => {
   const [savingProfile, setSavingProfile] = useState(false);
   const [importing, setImporting] = useState(false);
   const [malUser, setMalUser] = useState("");
+  const progressQuery = useQuery({
+    queryKey: ["dashboard-progress", user?.id],
+    queryFn: () => api.myProgress(100),
+    enabled: !!user,
+    refetchOnWindowFocus: false,
+  });
 
   // Account fields
   const [newEmail, setNewEmail] = useState("");
@@ -48,7 +56,7 @@ const Dashboard = () => {
   const [accountBusy, setAccountBusy] = useState(false);
 
   useEffect(() => {
-    document.title = "Dashboard — Lumen";
+    document.title = "Dashboard — Hey Anime";
   }, []);
 
   useEffect(() => {
@@ -67,6 +75,17 @@ const Dashboard = () => {
       setWatchlist((wl as WatchlistRow[]) ?? []);
     })();
   }, [user]);
+
+  const recentProgress = useMemo(() => {
+    const rows = progressQuery.data ?? [];
+    const byMalId = new Map<number, ProgressRow>();
+    for (const row of rows) {
+      if (!byMalId.has(row.mal_id)) {
+        byMalId.set(row.mal_id, row);
+      }
+    }
+    return [...byMalId.values()];
+  }, [progressQuery.data]);
 
   const saveProfile = async () => {
     if (!user) return;
@@ -119,11 +138,11 @@ const Dashboard = () => {
 
   const exportJson = () => {
     if (!watchlist.length) { toast.info("Nothing to export"); return; }
-    downloadFile(`lumen-watchlist-${Date.now()}.json`, JSON.stringify(watchlist, null, 2), "application/json");
+    downloadFile(`hey-anime-watchlist-${Date.now()}.json`, JSON.stringify(watchlist, null, 2), "application/json");
   };
   const exportXml = () => {
     if (!watchlist.length) { toast.info("Nothing to export"); return; }
-    downloadFile(`lumen-watchlist-${Date.now()}.xml`, buildMalXml(watchlist), "application/xml");
+    downloadFile(`hey-anime-watchlist-${Date.now()}.xml`, buildMalXml(watchlist), "application/xml");
   };
 
   const removeEntry = async (id: string) => {
@@ -163,9 +182,9 @@ const Dashboard = () => {
   }
 
   const stats = {
-    total: watchlist.length,
-    completed: watchlist.filter(w => w.status === "completed").length,
-    watching: watchlist.filter(w => w.status === "watching").length,
+    total: recentProgress.length || watchlist.length,
+    completed: recentProgress.filter(r => r.completed).length || watchlist.filter(w => w.status === "completed").length,
+    watching: recentProgress.filter(r => !r.completed && (r.percent ?? 0) > 0).length || watchlist.filter(w => w.status === "watching").length,
     planned: watchlist.filter(w => w.status === "plan_to_watch").length,
   };
 
@@ -193,6 +212,54 @@ const Dashboard = () => {
         <div className="mt-6">
           <NotificationCenter />
         </div>
+
+        {recentProgress.length > 0 && (
+          <section className="mt-10">
+            <div className="flex items-end justify-between gap-4 mb-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-primary mb-1.5">Backend progress</p>
+                <h2 className="font-display text-2xl font-semibold">Recently watched</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">Synced from your player history</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {recentProgress.slice(0, 10).map((row) => (
+                <Link
+                  key={row.mal_id}
+                  to={`/watch/${row.mal_id}?ep=${row.episode}`}
+                  className="group relative overflow-hidden rounded-lg ring-1 ring-border/50 hover:ring-primary/60 transition-all"
+                >
+                  <div className="aspect-[2/3] bg-secondary/40">
+                    {row.image_url ? (
+                      <img
+                        src={row.image_url}
+                        alt={row.title || ""}
+                        loading="lazy"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full grid place-items-center text-muted-foreground">
+                        <UserIcon className="w-6 h-6" />
+                      </div>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 h-2 bg-secondary/90">
+                      <div
+                        className="h-full bg-gradient-ember"
+                        style={{ width: `${Math.min(100, row.percent || 0)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="p-2.5">
+                    <p className="font-medium text-sm truncate">{row.title || `MAL #${row.mal_id}`}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {row.completed ? "Completed" : `Ep ${row.episode} · ${Math.round(row.percent || 0)}%`}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         <Tabs defaultValue="library" className="mt-10">
           <TabsList className="bg-secondary/60">
@@ -263,7 +330,7 @@ const Dashboard = () => {
 
               <div className="mt-10 p-5 rounded-lg bg-card/60 ring-1 ring-border/60">
                 <h3 className="font-display text-lg font-semibold mb-1">Export</h3>
-                <p className="text-sm text-muted-foreground mb-4">Download your Lumen library as JSON or MAL-compatible XML (re-importable to MyAnimeList).</p>
+                <p className="text-sm text-muted-foreground mb-4">Download your Hey Anime library as JSON or MAL-compatible XML (re-importable to MyAnimeList).</p>
                 <div className="flex gap-2">
                   <Button variant="outline" onClick={exportJson}><Download className="w-4 h-4 mr-2" />Export JSON</Button>
                   <Button variant="outline" onClick={exportXml}><Download className="w-4 h-4 mr-2" />Export MAL XML</Button>

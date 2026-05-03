@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   Search,
   LogOut,
@@ -72,6 +72,7 @@ export const Navbar = () => {
   const [suggestions, setSuggestions] = useState<Anime[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const searchCache = useRef<Map<string, Anime[]>>(new Map());
 
   const trimmedQuery = q.trim();
 
@@ -111,10 +112,22 @@ export const Navbar = () => {
   useEffect(() => {
     let active = true;
     const timeout = window.setTimeout(async () => {
-      if (!trimmedQuery) {
+      if (!trimmedQuery || trimmedQuery.length < 2) {
         if (active) {
           setSuggestions([]);
           setSuggestionsOpen(false);
+          setSuggestionsLoading(false);
+        }
+        return;
+      }
+
+      // Serve cached suggestions when available to reduce network calls.
+      const cached = searchCache.current.get(trimmedQuery);
+      if (cached) {
+        if (active) {
+          setSuggestions(cached);
+          setSuggestionsOpen(true);
+          setSuggestionsLoading(false);
         }
         return;
       }
@@ -126,6 +139,7 @@ export const Navbar = () => {
         const ranked = rankSearchResults(dedupeAnime(found).slice(0, 10), trimmedQuery).slice(0, 7);
         setSuggestions(ranked);
         setSuggestionsOpen(true);
+        searchCache.current.set(trimmedQuery, ranked);
       } catch {
         if (active) {
           setSuggestions([]);
@@ -150,7 +164,15 @@ export const Navbar = () => {
     try {
       const context = user ? await buildWatchContext() : {};
       const picks = await aiRecommendations(pool, 6, context);
-      setAiPicks(picks);
+      // If AI keeps returning the same set repeatedly, fallback to a randomized selection
+      const pickIds = picks.map((p) => p.mal_id).join(',');
+      const existingIds = aiPicks.map((p) => p.mal_id).join(',');
+      if (existingIds && existingIds === pickIds) {
+        const shuffled = [...pool].sort(() => Math.random() - 0.5).slice(0, 6);
+        setAiPicks(shuffled);
+      } else {
+        setAiPicks(picks);
+      }
     } catch {
       setAiPicks([]);
     } finally {
@@ -243,6 +265,7 @@ export const Navbar = () => {
                     <img
                       src={anime.images?.jpg?.image_url}
                       alt={anime.title}
+                      loading="lazy"
                       className="w-12 h-16 rounded-md object-cover flex-shrink-0"
                     />
                     <div className="min-w-0 flex-1">

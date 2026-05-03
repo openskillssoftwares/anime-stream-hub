@@ -52,7 +52,7 @@ const Index = () => {
               <AdSlot slot="home-mid" className="mt-6" />
             </div>
           </div>
-          <AnimeRow id="top" eyebrow="All-time greats" title="Top 10 of all time" items={top.data} loading={top.isLoading} numbered />
+          <AnimeRow id="top" eyebrow="Featured" title="Top 10 anime" items={top.data} loading={top.isLoading} numbered compact />
           <AnimeRow eyebrow="Coming soon" title="Upcoming releases" items={upcoming.data} loading={upcoming.isLoading} />
         </main>
       )}

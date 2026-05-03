@@ -12,9 +12,10 @@ interface Props {
   items: Anime[] | undefined;
   loading?: boolean;
   numbered?: boolean;
+  compact?: boolean;
 }
 
-export const AnimeRow = ({ id, title, eyebrow, items, loading, numbered }: Props) => {
+export const AnimeRow = ({ id, title, eyebrow, items, loading, numbered, compact }: Props) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (dir: "left" | "right") => {
@@ -63,7 +64,7 @@ export const AnimeRow = ({ id, title, eyebrow, items, loading, numbered }: Props
           const unique = Array.from(new Map(items.map((it) => [it.mal_id, it])).values());
           return unique.map((a, i) => (
             <div key={a.mal_id} className="snap-start">
-              <AnimeCard anime={a} rank={numbered ? i + 1 : undefined} />
+              <AnimeCard anime={a} rank={numbered ? i + 1 : undefined} compact={compact} />
             </div>
           ));
         })()}

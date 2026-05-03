@@ -43,6 +43,13 @@ export interface Anime {
   rank?: number | null;
 }
 
+export interface AnimeEpisode {
+  mal_id: number;
+  title: string;
+  aired?: string | null;
+  episodeNumber: number;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
   if (!res.ok) throw new Error(`Jikan ${res.status}`);
@@ -91,10 +98,48 @@ export const jikan = {
       return null;
     }
   },
-  episodes: async (id: number | string) => {
+  episodes: async (id: number | string): Promise<AnimeEpisode[]> => {
     try {
-      const r = await get<{ data: { mal_id: number; title: string; aired?: string }[] }>(`/anime/${id}/episodes`);
-      return Array.isArray(r?.data) ? r.data : [];
+      const collected: AnimeEpisode[] = [];
+      const seen = new Set<number>();
+
+      for (let page = 1; page <= 100; page += 1) {
+        const r = await get<{
+          data: Array<{
+            mal_id?: number;
+            title?: string;
+            aired?: string | { from?: string | null } | null;
+            episode?: number | string | null;
+            number?: number | string | null;
+          }>;
+          pagination?: { has_next_page?: boolean; last_visible_page?: number };
+        }>(`/anime/${id}/episodes?page=${page}`);
+
+        const items = Array.isArray(r?.data) ? r.data : [];
+        if (items.length === 0) break;
+
+        items.forEach((raw, index) => {
+          const episodeNumber = Number(raw.episode ?? raw.number ?? raw.mal_id ?? collected.length + index + 1);
+          const num = Number.isFinite(episodeNumber) ? episodeNumber : collected.length + index + 1;
+          if (seen.has(num)) return;
+          seen.add(num);
+
+          const aired = typeof raw.aired === "string" ? raw.aired : raw.aired?.from ?? null;
+          collected.push({
+            mal_id: typeof raw.mal_id === "number" ? raw.mal_id : num,
+            title: raw.title || `Episode ${num}`,
+            aired,
+            episodeNumber: num,
+          });
+        });
+
+        const pagination = r?.pagination;
+        if (!pagination?.has_next_page && (!pagination?.last_visible_page || page >= pagination.last_visible_page)) {
+          break;
+        }
+      }
+
+      return collected;
     } catch {
       return [];
     }

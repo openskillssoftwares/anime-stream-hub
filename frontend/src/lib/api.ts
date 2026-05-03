@@ -73,6 +73,18 @@ export interface StreamOut {
   episode_embed_id?: string | null;
   title?: string | null;
 }
+export interface ReportOut {
+  id: string;
+  mal_id: number;
+  episode: number;
+  lang: string;
+  source: string;
+  reported_url?: string | null;
+  created_at: string;
+  user_id?: string | null;
+  user_name?: string | null;
+  probe_ok?: boolean | null;
+}
 export interface ProgressRow {
   mal_id: number;
   episode: number;
@@ -156,6 +168,9 @@ export const api = {
       `/anikoto/resolve?mal_id=${mal_id}`
     ),
 
+  reportStream: (payload: { mal_id: number | string; episode: number; lang?: string; source?: string; anikoto_id?: number | undefined; reported_url?: string; notes?: string }) =>
+    req<ReportOut>(`/reports/stream`, { method: "POST", body: JSON.stringify(payload) }),
+
   // ---- progress ----
   saveProgress: (p: ProgressIn) =>
     req<{ ok: boolean }>("/progress", { method: "POST", body: JSON.stringify(p) }),
@@ -209,6 +224,8 @@ export const api = {
     req<{ ok: boolean }>(`/admin/anime/ban/${mal_id}`, { method: "DELETE" }),
 
   adminListComments: () => req<AdminCommentRow[]>("/admin/comments"),
+  adminListRatings: () => req<{ id?: string; user_id?: string; mal_id?: number; score?: number; created_at?: string | null; updated_at?: string | null }[]>("/admin/ratings"),
+  adminListFlags: () => req<{ id?: string; user_id?: string; action?: string; reason?: string; created_at?: string | null }[]>("/admin/flags"),
   adminApproveComment: (id: string) =>
     req<{ ok: boolean }>(`/admin/comments/${id}/approve`, { method: "POST" }),
   adminDeleteComment: (id: string) =>

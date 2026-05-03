@@ -3,12 +3,12 @@ import { motion } from "framer-motion";
 import { Star, Play } from "lucide-react";
 import type { Anime } from "@/lib/jikan";
 
-export const AnimeCard = ({ anime, rank }: { anime: Anime; rank?: number }) => {
+export const AnimeCard = ({ anime, rank, compact }: { anime: Anime; rank?: number; compact?: boolean }) => {
   return (
     <motion.div
       whileHover={{ y: -6 }}
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative shrink-0 w-[180px] md:w-[210px]"
+      className={`group relative shrink-0 ${compact ? "w-[150px] md:w-[180px]" : "w-[180px] md:w-[210px]"}`}
     >
       <Link to={`/watch/${anime.mal_id}`} className="block">
         <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-card shadow-card">
@@ -16,11 +16,11 @@ export const AnimeCard = ({ anime, rank }: { anime: Anime; rank?: number }) => {
             src={anime.images.jpg.large_image_url}
             alt={anime.title}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            className="w-full h-full object-cover object-center transition-transform duration-700 group-hover:scale-110"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent opacity-90" />
           {rank && (
-            <div className="absolute top-2 left-2 font-display text-5xl font-extrabold text-foreground/95 leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)]">
+            <div className={`absolute top-2 left-2 font-display font-extrabold text-foreground/95 leading-none drop-shadow-[0_2px_8px_rgba(0,0,0,0.8)] ${compact ? "text-4xl" : "text-5xl"}`}>
               {rank}
             </div>
           )}
@@ -35,7 +35,7 @@ export const AnimeCard = ({ anime, rank }: { anime: Anime; rank?: number }) => {
             </div>
           </div>
         </div>
-        <div className="mt-3 px-0.5">
+        <div className={`mt-3 px-0.5 ${compact ? "max-w-[180px]" : ""}`}>
           <h3 className="text-sm font-medium leading-snug line-clamp-2 group-hover:text-primary transition-colors">
             {anime.title_english || anime.title}
           </h3>

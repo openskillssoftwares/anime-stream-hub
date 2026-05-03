@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
   Loader2, ShieldCheck, Users, Film, MessageSquare,
-  Ban, CheckCircle2, Trash2, AlertTriangle, BarChart3,
+  Ban, CheckCircle2, Trash2, AlertTriangle, BarChart3, Star,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { Navbar } from "@/components/Navbar";
@@ -25,6 +25,8 @@ const Admin = () => {
   const [stats, setStats] = useState<{ comments: number; ratings: number; banned_users: number; banned_anime: number; flagged_events: number; active_users: number } | null>(null);
   const [users, setUsers] = useState<AdminUserRow[]>([]);
   const [comments, setComments] = useState<AdminCommentRow[]>([]);
+  const [ratings, setRatings] = useState<{ id?: string; user_id?: string; mal_id?: number; score?: number; created_at?: string | null; updated_at?: string | null }[]>([]);
+  const [flags, setFlags] = useState<{ id?: string; user_id?: string; action?: string; reason?: string; created_at?: string | null }[]>([]);
   const [banned, setBanned] = useState<BannedAnimeRow[]>([]);
 
   const [malToBan, setMalToBan] = useState("");
@@ -57,10 +59,10 @@ const Admin = () => {
 
   const loadAll = async () => {
     try {
-      const [s, u, c, b] = await Promise.all([
-        api.adminStats(), api.adminListUsers(), api.adminListComments(), api.adminListBannedAnime(),
+      const [s, u, c, r, f, b] = await Promise.all([
+        api.adminStats(), api.adminListUsers(), api.adminListComments(), api.adminListRatings(), api.adminListFlags(), api.adminListBannedAnime(),
       ]);
-      setStats(s); setUsers(u); setComments(c); setBanned(b);
+      setStats(s); setUsers(u); setComments(c); setRatings(r); setFlags(f); setBanned(b);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Load failed");
     }
@@ -148,7 +150,9 @@ const Admin = () => {
         <Tabs defaultValue="comments" className="mt-10">
           <TabsList className="bg-secondary/60">
             <TabsTrigger value="comments"><MessageSquare className="w-4 h-4 mr-2" />Comments</TabsTrigger>
+            <TabsTrigger value="ratings"><Star className="w-4 h-4 mr-2" />Ratings</TabsTrigger>
             <TabsTrigger value="users"><Users className="w-4 h-4 mr-2" />Users</TabsTrigger>
+            <TabsTrigger value="flags"><AlertTriangle className="w-4 h-4 mr-2" />Flags</TabsTrigger>
             <TabsTrigger value="anime"><Film className="w-4 h-4 mr-2" />Anime gate</TabsTrigger>
             <TabsTrigger value="notices"><AlertTriangle className="w-4 h-4 mr-2" />Notices</TabsTrigger>
           </TabsList>
@@ -193,6 +197,22 @@ const Admin = () => {
             </div>
           </TabsContent>
 
+          <TabsContent value="ratings" className="mt-6">
+            <div className="space-y-2">
+              {ratings.length === 0 && <Empty>No ratings yet</Empty>}
+              {ratings.map((r) => (
+                <div key={r.id || `${r.user_id}-${r.mal_id}`} className="p-3 rounded-lg bg-card/60 ring-1 ring-border/60 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">MAL #{r.mal_id}</p>
+                    <p className="text-xs text-muted-foreground font-mono truncate">{r.user_id}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Score: {r.score}</p>
+                  </div>
+                  <Badge variant="secondary">{r.updated_at ? new Date(r.updated_at).toLocaleString() : "recent"}</Badge>
+                </div>
+              ))}
+            </div>
+          </TabsContent>
+
           {/* Users */}
           <TabsContent value="users" className="mt-6">
             <div className="space-y-2">
@@ -211,6 +231,22 @@ const Admin = () => {
                   ) : (
                     <Button size="sm" variant="destructive" onClick={() => banUser(u.user_id)}>Ban</Button>
                   )}
+                </div>
+              ))}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="flags" className="mt-6">
+            <div className="space-y-2">
+              {flags.length === 0 && <Empty>No flagged events yet</Empty>}
+              {flags.map((f, index) => (
+                <div key={f.id || `${index}`} className="p-3 rounded-lg bg-card/60 ring-1 ring-border/60 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{f.action || "Event"}</p>
+                    <p className="text-xs text-muted-foreground font-mono truncate">{f.user_id || "system"}</p>
+                    {f.reason && <p className="text-xs text-muted-foreground mt-0.5">{f.reason}</p>}
+                  </div>
+                  <Badge variant="secondary">{f.created_at ? new Date(f.created_at).toLocaleString() : "recent"}</Badge>
                 </div>
               ))}
             </div>

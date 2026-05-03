@@ -67,6 +67,11 @@ const Watch = () => {
     return /not yet aired|upcoming/i.test(status);
   }, [anime.data?.status]);
 
+  const isAiring = useMemo(() => {
+    const status = (anime.data?.status || "").toString();
+    return /airing|currently airing|ongoing/i.test(status);
+  }, [anime.data?.status]);
+
   const episodeList = (() => {
     const hasApiEps = Array.isArray(eps.data) && eps.data.length > 0;
 
@@ -129,7 +134,42 @@ const Watch = () => {
   );
   const nextEpisodeNumber = currentEpisodeIndex >= 0 && currentEpisodeIndex < episodeList.length - 1
     ? episodeList[currentEpisodeIndex + 1].episodeNumber
+    : isAiring && typeof anime.data?.episodes === "number" && anime.data.episodes > episodeList.length
+      ? episodeList.length + 1
     : null;
+
+  const scheduleBanner = useMemo(() => {
+    const broadcast = anime.data?.broadcast;
+    const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
+    const totalCount = typeof anime.data?.episodes === "number" ? anime.data.episodes : null;
+    const hasUpcomingEpisode = isAiring && totalCount !== null && totalCount > episodeList.length;
+
+    if (nextAiringEpisode?.aired) {
+      return {
+        episode: nextAiringEpisode.episodeNumber,
+        label: nextAiringLabel,
+        subtitle: "Next episode is scheduled",
+      };
+    }
+
+    if (hasUpcomingEpisode) {
+      return {
+        episode: episodeList.length + 1,
+        label: broadcastText || null,
+        subtitle: broadcastText ? "Weekly schedule" : "New episode coming soon",
+      };
+    }
+
+    if (isAiring && broadcastText) {
+      return {
+        episode: episodeList.length + 1,
+        label: broadcastText,
+        subtitle: "Weekly schedule",
+      };
+    }
+
+    return null;
+  }, [anime.data?.broadcast, anime.data?.episodes, episodeList.length, isAiring, nextAiringEpisode, nextAiringLabel]);
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {
@@ -400,12 +440,14 @@ const Watch = () => {
               )}
             </div>
 
-            {nextAiringEpisode && nextAiringLabel && (
+            {scheduleBanner && (
               <div className="mt-3 rounded-lg bg-secondary/40 ring-1 ring-border/50 px-4 py-2 text-sm text-muted-foreground flex flex-wrap items-center gap-2">
                 <span className="font-medium text-foreground">Next episode:</span>
-                <span>Episode {nextAiringEpisode.episodeNumber}</span>
+                <span>Episode {scheduleBanner.episode}</span>
                 <span>•</span>
-                <span>{nextAiringLabel} (it's coming)</span>
+                <span>{scheduleBanner.label || "Coming soon"}</span>
+                <span>•</span>
+                <span>{scheduleBanner.subtitle}</span>
               </div>
             )}
 

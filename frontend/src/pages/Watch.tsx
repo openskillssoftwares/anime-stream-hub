@@ -62,10 +62,17 @@ const Watch = () => {
 
   useEffect(() => { setIframeError(false); }, [episode, id, lang, source]);
 
+  const isUpcoming = useMemo(() => {
+    const status = (anime.data?.status || "").toString();
+    return /not yet aired|upcoming/i.test(status);
+  }, [anime.data?.status]);
+
   const episodeList = (() => {
     const hasApiEps = Array.isArray(eps.data) && eps.data.length > 0;
-    const status = (anime.data?.status || "").toString();
-    const isUpcoming = /not yet aired|upcoming/i.test(status);
+
+    if (isUpcoming) {
+      return [] as AnimeEpisode[];
+    }
 
     if (hasApiEps) {
       return (eps.data as AnimeEpisode[]).filter((ep) => {
@@ -90,7 +97,7 @@ const Watch = () => {
   const stream = useQuery({
     queryKey: ["stream", id, episode, lang, source, anikotoId],
     queryFn: () => api.getStream(malId, episode, lang, source, anikotoId),
-    enabled: !!id && !blocked.data?.blocked && episodeList.length > 0 && (source !== "anikoto" || !!anikotoId),
+    enabled: !!id && !blocked.data?.blocked && !isUpcoming && episodeList.length > 0 && (source !== "anikoto" || !!anikotoId),
     retry: 0,
   });
 
@@ -159,26 +166,26 @@ const Watch = () => {
   }, [stream.error, source, autoFallbackTried, malId]);
 
   const handleReportStream = async () => {
-      if (!user) {
-        toast('Sign in to report broken streams');
-        return;
-      }
-      try {
-        toast.loading('Reporting stream…', { id: 'report-stream' });
-        await api.reportStream({
-          mal_id: malId,
-          episode,
-          lang,
-          source,
-          anikoto_id: anikotoId,
-          reported_url: stream.data?.embed_url,
-          notes: '',
-        });
-        toast.success('Thanks — report submitted', { id: 'report-stream' });
-      } catch (e) {
-        toast.error('Failed to submit report', { id: 'report-stream' });
-      }
-    };
+    if (!user) {
+      toast('Sign in to report broken streams');
+      return;
+    }
+    try {
+      toast.loading('Reporting stream…', { id: 'report-stream' });
+      await api.reportStream({
+        mal_id: malId,
+        episode,
+        lang,
+        source,
+        anikoto_id: anikotoId,
+        reported_url: stream.data?.embed_url,
+        notes: '',
+      });
+      toast.success('Thanks — report submitted', { id: 'report-stream' });
+    } catch (e) {
+      toast.error('Failed to submit report', { id: 'report-stream' });
+    }
+  };
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);
@@ -367,12 +374,12 @@ const Watch = () => {
                     Report missing title <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
-              ) : episodeList.length === 0 ? (
+              ) : isUpcoming || episodeList.length === 0 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3 bg-gradient-to-b from-background/20 to-background/80">
                   <AlertTriangle className="w-10 h-10 text-primary" />
                   <p className="font-display text-2xl">Coming soon</p>
                   <p className="text-sm text-muted-foreground max-w-md">
-                    This title has no released episodes yet. We'll show the player when it starts airing.
+                    This title has not aired yet. We'll show the player when it starts airing.
                   </p>
                 </div>
               ) : !playerSrc ? (
@@ -438,7 +445,11 @@ const Watch = () => {
             <div className="rounded-xl bg-card/60 ring-1 ring-border/60 p-4 backdrop-blur">
               <h2 className="font-display text-lg font-semibold mb-3">Episodes</h2>
               <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-1 scrollbar-hide">
-                {episodeList.map((ep, i) => {
+                {isUpcoming ? (
+                  <div className="rounded-lg border border-dashed border-border/60 bg-secondary/20 p-4 text-sm text-muted-foreground">
+                    Coming soon. This anime has not aired yet.
+                  </div>
+                ) : episodeList.map((ep, i) => {
                   const num = ep.episodeNumber || i + 1;
                   const active = num === episode;
                   return (

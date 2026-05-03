@@ -41,6 +41,8 @@ export interface Anime {
   genres?: { name: string }[];
   trailer?: { youtube_id?: string | null; embed_url?: string | null } | null;
   rank?: number | null;
+  broadcast?: { day?: string | null; time?: string | null; string?: string | null } | null;
+  aired?: { from?: string | null; to?: string | null } | string | null;
 }
 
 export interface AnimeEpisode {

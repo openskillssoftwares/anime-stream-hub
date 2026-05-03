@@ -34,6 +34,7 @@ const Watch = () => {
     return a ? Number(a) : undefined;
   });
   const [iframeError, setIframeError] = useState(false);
+  const [autoFallbackTried, setAutoFallbackTried] = useState(false);
 
   // keep URL in sync (so ep/lang are shareable)
   useEffect(() => {
@@ -51,13 +52,6 @@ const Watch = () => {
     queryKey: ["blocked", id],
     queryFn: () => api.isAnimeBlocked(id!),
     enabled: !!id,
-  });
-
-  const stream = useQuery({
-    queryKey: ["stream", id, episode, lang, source, anikotoId],
-    queryFn: () => api.getStream(malId, episode, lang, source, anikotoId),
-    enabled: !!id && !blocked.data?.blocked && (source !== "anikoto" || !!anikotoId),
-    retry: 0,
   });
 
   useEffect(() => {
@@ -93,6 +87,34 @@ const Watch = () => {
     return [] as AnimeEpisode[];
   })();
 
+  const stream = useQuery({
+    queryKey: ["stream", id, episode, lang, source, anikotoId],
+    queryFn: () => api.getStream(malId, episode, lang, source, anikotoId),
+    enabled: !!id && !blocked.data?.blocked && episodeList.length > 0 && (source !== "anikoto" || !!anikotoId),
+    retry: 0,
+  });
+
+  const nextAiringEpisode = useMemo(() => {
+    const allEpisodes = Array.isArray(eps.data) ? (eps.data as AnimeEpisode[]) : [];
+    return allEpisodes.find((ep) => ep.aired && !Number.isNaN(new Date(ep.aired).getTime()) && new Date(ep.aired).getTime() > Date.now()) || null;
+  }, [eps.data]);
+
+  const nextAiringLabel = useMemo(() => {
+    if (!nextAiringEpisode?.aired) return null;
+    try {
+      return new Date(nextAiringEpisode.aired).toLocaleString(undefined, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+      });
+    } catch {
+      return nextAiringEpisode.aired;
+    }
+  }, [nextAiringEpisode]);
+
   const totalEpisodes = episodeList.length;
   const currentEpisodeIndex = useMemo(
     () => episodeList.findIndex((ep) => ep.episodeNumber === episode),
@@ -113,10 +135,50 @@ const Watch = () => {
   }, [episode, currentEpisodeIndex, episodeList]);
 
   useEffect(() => {
-    if (!stream.error || source !== "anikoto") return;
-    toast.warning("Episode unavailable on Server 2. Switched to Server 1.");
-    setSource("mal");
-  }, [stream.error, source]);
+    if (!stream.error) return;
+    if (source === "anikoto") {
+      toast.warning("Episode unavailable on Server 2. Switched to Server 1.");
+      setSource("mal");
+      return;
+    }
+    if (source === "mal" && !autoFallbackTried) {
+      setAutoFallbackTried(true);
+      (async () => {
+        try {
+          const resolved = await api.anikotoResolve(malId);
+          if (resolved.anikoto_id) {
+            setAnikotoId(resolved.anikoto_id);
+            setSource("anikoto");
+            toast.warning("Server 1 lookup failed. Trying Server 2 instead.");
+          }
+        } catch {
+          // keep the existing fallback UI
+        }
+      })();
+    }
+  }, [stream.error, source, autoFallbackTried, malId]);
+
+  const handleReportStream = async () => {
+      if (!user) {
+        toast('Sign in to report broken streams');
+        return;
+      }
+      try {
+        toast.loading('Reporting stream…', { id: 'report-stream' });
+        await api.reportStream({
+          mal_id: malId,
+          episode,
+          lang,
+          source,
+          anikoto_id: anikotoId,
+          reported_url: stream.data?.embed_url,
+          notes: '',
+        });
+        toast.success('Thanks — report submitted', { id: 'report-stream' });
+      } catch (e) {
+        toast.error('Failed to submit report', { id: 'report-stream' });
+      }
+    };
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);
@@ -261,6 +323,9 @@ const Watch = () => {
               >
                 <RefreshCcw className="w-3.5 h-3.5 mr-1" /> Reload
               </Button>
+              <Button size="sm" variant="ghost" onClick={handleReportStream} className="h-8 px-2" title="Report broken stream">
+                <AlertTriangle className="w-3.5 h-3.5 mr-1" /> Report
+              </Button>
               {nextEpisodeNumber && (
                 <Button
                   size="sm" variant="ghost" onClick={() => setEpisode(nextEpisodeNumber)}
@@ -302,6 +367,14 @@ const Watch = () => {
                     Report missing title <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
+              ) : episodeList.length === 0 ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3 bg-gradient-to-b from-background/20 to-background/80">
+                  <AlertTriangle className="w-10 h-10 text-primary" />
+                  <p className="font-display text-2xl">Coming soon</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    This title has no released episodes yet. We'll show the player when it starts airing.
+                  </p>
+                </div>
               ) : !playerSrc ? (
                 <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
                   Loading player…
@@ -319,6 +392,15 @@ const Watch = () => {
                 />
               )}
             </div>
+
+            {nextAiringEpisode && nextAiringLabel && (
+              <div className="mt-3 rounded-lg bg-secondary/40 ring-1 ring-border/50 px-4 py-2 text-sm text-muted-foreground flex flex-wrap items-center gap-2">
+                <span className="font-medium text-foreground">Next episode:</span>
+                <span>Episode {nextAiringEpisode.episodeNumber}</span>
+                <span>•</span>
+                <span>{nextAiringLabel} (it's coming)</span>
+              </div>
+            )}
 
             {/* Title block */}
             {anime.data && (

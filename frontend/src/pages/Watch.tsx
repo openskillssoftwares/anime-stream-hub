@@ -15,6 +15,7 @@ import { AdSlot } from "@/components/AdSlot";
 import { api, type StreamOut } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import type { AnimeEpisode } from "@/lib/jikan";
 
 type Lang = "sub" | "dub";
 type Source = "mal" | "anikoto";
@@ -73,7 +74,7 @@ const Watch = () => {
     const isUpcoming = /not yet aired|upcoming/i.test(status);
 
     if (hasApiEps) {
-      return eps.data.filter((ep) => {
+      return (eps.data as AnimeEpisode[]).filter((ep) => {
         if (!ep || !ep.aired) return true;
         const d = new Date(ep.aired);
         return isNaN(d.getTime()) ? true : d.getTime() <= Date.now();
@@ -82,23 +83,34 @@ const Watch = () => {
 
     // Don't synthesize placeholder episodes for titles that haven't aired yet
     if (!isUpcoming && typeof anime.data?.episodes === "number" && anime.data.episodes > 0) {
-      return Array.from({ length: anime.data.episodes }, (_, i) => ({ mal_id: i + 1, title: `Episode ${i + 1}` }));
+      return Array.from({ length: anime.data.episodes }, (_, i) => ({
+        mal_id: i + 1,
+        title: `Episode ${i + 1}`,
+        episodeNumber: i + 1,
+      }));
     }
 
-    return [] as { mal_id: number; title?: string; aired?: string }[];
+    return [] as AnimeEpisode[];
   })();
 
   const totalEpisodes = episodeList.length;
+  const currentEpisodeIndex = useMemo(
+    () => episodeList.findIndex((ep) => ep.episodeNumber === episode),
+    [episodeList, episode],
+  );
+  const nextEpisodeNumber = currentEpisodeIndex >= 0 && currentEpisodeIndex < episodeList.length - 1
+    ? episodeList[currentEpisodeIndex + 1].episodeNumber
+    : null;
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {
-      setEpisode(1);
+      setEpisode(episodeList[0]?.episodeNumber || 1);
       return;
     }
-    if (totalEpisodes > 0 && episode > totalEpisodes) {
-      setEpisode(totalEpisodes);
+    if (episodeList.length > 0 && currentEpisodeIndex === -1) {
+      setEpisode(episodeList[0].episodeNumber);
     }
-  }, [episode, totalEpisodes]);
+  }, [episode, currentEpisodeIndex, episodeList]);
 
   useEffect(() => {
     if (!stream.error || source !== "anikoto") return;
@@ -157,15 +169,15 @@ const Watch = () => {
             image_url: anime.data?.images?.jpg?.large_image_url,
           }).catch(() => {});
         }
-        if (episode < totalEpisodes) {
-          toast.success(`Up next: episode ${episode + 1}`);
-          setEpisode((e) => Math.min(e + 1, totalEpisodes));
+        if (nextEpisodeNumber) {
+          toast.success(`Up next: episode ${nextEpisodeNumber}`);
+          setEpisode(nextEpisodeNumber);
         }
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [user, malId, episode, totalEpisodes, anime.data]);
+  }, [user, malId, episode, nextEpisodeNumber, anime.data]);
 
   const playerSrc = stream.data?.embed_url;
   const streamErrored = !!stream.error;
@@ -249,9 +261,9 @@ const Watch = () => {
               >
                 <RefreshCcw className="w-3.5 h-3.5 mr-1" /> Reload
               </Button>
-              {episode < totalEpisodes && (
+              {nextEpisodeNumber && (
                 <Button
-                  size="sm" variant="ghost" onClick={() => setEpisode((e) => e + 1)}
+                  size="sm" variant="ghost" onClick={() => setEpisode(nextEpisodeNumber)}
                   className="h-8 px-2 text-primary hover:text-primary"
                 >
                   <SkipForward className="w-3.5 h-3.5 mr-1" /> Next ep
@@ -345,11 +357,11 @@ const Watch = () => {
               <h2 className="font-display text-lg font-semibold mb-3">Episodes</h2>
               <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-1 scrollbar-hide">
                 {episodeList.map((ep, i) => {
-                  const num = i + 1;
+                  const num = ep.episodeNumber || i + 1;
                   const active = num === episode;
                   return (
                     <button
-                      key={ep.mal_id}
+                      key={`${ep.mal_id}-${num}`}
                       onClick={() => setEpisode(num)}
                       className={`w-full text-left px-3 py-2.5 rounded-lg transition-all text-sm ${
                         active

@@ -47,7 +47,16 @@ const Auth = () => {
           password: parsed.data.password,
         });
 
-        const session = result.session;
+        const session = result.session || (
+          result.access_token && result.refresh_token
+            ? {
+                access_token: result.access_token,
+                refresh_token: result.refresh_token,
+                expires_in: result.expires_in,
+                token_type: result.token_type,
+              }
+            : null
+        );
         if (!session?.access_token || !session?.refresh_token) {
           throw new Error("Sign-in failed: session not returned.");
         }
@@ -65,10 +74,21 @@ const Auth = () => {
           password: parsed.data.password,
         });
 
-        if (result.session?.access_token && result.session?.refresh_token) {
+        const session = result.session || (
+          result.access_token && result.refresh_token
+            ? {
+                access_token: result.access_token,
+                refresh_token: result.refresh_token,
+                expires_in: result.expires_in,
+                token_type: result.token_type,
+              }
+            : null
+        );
+
+        if (session?.access_token && session?.refresh_token) {
           await supabase.auth.setSession({
-            access_token: result.session.access_token,
-            refresh_token: result.session.refresh_token,
+            access_token: session.access_token,
+            refresh_token: session.refresh_token,
           });
           toast.success("Account created — you're in.");
           navigate("/dashboard", { replace: true });

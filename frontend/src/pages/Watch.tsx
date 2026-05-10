@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -328,20 +328,28 @@ const Watch = () => {
 
   const communityLink = `/community?scope=anime&mal_id=${malId}${anime.data?.title ? `&title=${encodeURIComponent(anime.data.title_english || anime.data.title)}` : ""}`;
 
+  const pageUrl = typeof window !== "undefined" ? window.location.href : "";
+  const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
+
   // Trigger ShareThis parsing when anime changes and fall back to native share links if blocked.
   useEffect(() => {
     if (!anime.data || typeof window === "undefined") return;
 
     const reloadShareThis = () => {
       try {
-        const globalAny = window as any;
+        const globalWindow = window as Window & {
+          __sharethis__?: { load?: (widgetId: string) => void };
+          sharethis?: { load?: (widgetId: string) => void };
+          stLight?: { parse?: (target: Element | null) => void };
+        };
+
         // Try multiple ways to reload ShareThis
-        if (globalAny.__sharethis__?.load) {
-          globalAny.__sharethis__.load("inline-share-buttons");
-        } else if (globalAny.sharethis?.load) {
-          globalAny.sharethis.load("inline-share-buttons");
-        } else if (globalAny.stLight?.parse) {
-          globalAny.stLight.parse(document.querySelector(".sharethis-inline-share-buttons"));
+        if (globalWindow.__sharethis__?.load) {
+          globalWindow.__sharethis__.load("inline-share-buttons");
+        } else if (globalWindow.sharethis?.load) {
+          globalWindow.sharethis.load("inline-share-buttons");
+        } else if (globalWindow.stLight?.parse) {
+          globalWindow.stLight.parse(document.querySelector(".sharethis-inline-share-buttons"));
         }
       } catch (e) {
         // Silent fail
@@ -351,7 +359,7 @@ const Watch = () => {
     // Small delay to ensure DOM is ready
     const timer = window.setTimeout(() => {
       reloadShareThis();
-      
+
       // Check again after 1s to ensure buttons rendered
       window.setTimeout(() => {
         const host = document.querySelector(".sharethis-inline-share-buttons");
@@ -361,10 +369,7 @@ const Watch = () => {
     }, 100);
 
     return () => window.clearTimeout(timer);
-  }, [anime.data?.mal_id, pageUrl, shareTitle]);
-
-  const pageUrl = typeof window !== "undefined" ? window.location.href : "";
-  const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
+  }, [anime.data, pageUrl, shareTitle]);
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);
@@ -725,19 +730,6 @@ const Watch = () => {
                 )}
               </div>
             )}
-
-            {/* Episode Carousel Slider */}
-            {episodeList.length > 0 && (
-              <div className="mt-8">
-                <EpisodeCarousel
-                  episodes={episodeList}
-                  currentEpisode={episode}
-                  onEpisodeSelect={setEpisode}
-                  animeTitle={anime.data?.title_english || anime.data?.title || "Episode"}
-                  animeImage={anime.data?.images?.jpg?.large_image_url}
-                />
-              </div>
-            )}
           </motion.div>
 
           {/* Episodes sidebar */}
@@ -809,4 +801,48 @@ const SegmentedToggle = ({
   </div>
 );
 
-export default Watch;
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; info: React.ErrorInfo | null }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // Log to console and set state so we can render helpful UI
+    // This will surface runtime exceptions that would otherwise cause a blank page
+    // User can copy the error text for debugging
+    // eslint-disable-next-line no-console
+    console.error("Watch page runtime error:", error, info);
+    this.setState({ error, info });
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-6">
+          <div className="max-w-3xl w-full bg-card/80 ring-1 ring-border/60 rounded-lg p-6">
+            <h2 className="font-display text-xl font-semibold mb-3">Something went wrong loading the player</h2>
+            <p className="text-sm text-muted-foreground mb-4">An unexpected error occurred while rendering the Watch page. The error is shown below — please paste it into the chat or the browser console.</p>
+            <pre className="whitespace-pre-wrap text-xs bg-background/50 p-3 rounded text-red-400 overflow-auto" style={{ maxHeight: 300 }}>
+              {String(this.state.error?.message) + (this.state.info?.componentStack ? "\n\n" + this.state.info.componentStack : "")}
+            </pre>
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => window.location.reload()} className="px-3 py-1.5 rounded bg-primary text-primary-foreground">Reload page</button>
+              <button onClick={() => { this.setState({ error: null, info: null }); window.history.back(); }} className="px-3 py-1.5 rounded bg-secondary">Go back</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children as React.ReactElement;
+  }
+}
+
+const WatchPage = () => (
+  <ErrorBoundary>
+    <Watch />
+  </ErrorBoundary>
+);
+
+export default WatchPage;

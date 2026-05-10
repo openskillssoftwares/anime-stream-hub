@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { AlertCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 export default function SupabaseBanner() {
   const [down, setDown] = useState(false);
+  const wasDown = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -21,12 +22,18 @@ export default function SupabaseBanner() {
     return () => { mounted = false; clearInterval(id); };
   }, []);
 
-  if (!down) return null;
+  useEffect(() => {
+    if (down && !wasDown.current) {
+      toast.warning("Comments service is unavailable right now. Posts may take a moment to appear.", {
+        id: "comments-service-unavailable",
+        duration: 6000,
+      });
+    }
+    if (!down && wasDown.current) {
+      toast.dismiss("comments-service-unavailable");
+    }
+    wasDown.current = down;
+  }, [down]);
 
-  return (
-    <div className="w-full bg-amber-600 text-amber-900 px-4 py-2 text-sm flex items-center gap-2">
-      <AlertCircle className="w-4 h-4" />
-      Comments are currently unavailable — we're reconnecting to the comments service.
-    </div>
-  );
+  return null;
 }

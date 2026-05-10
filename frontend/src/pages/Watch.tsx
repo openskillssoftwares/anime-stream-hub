@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
+import * as LottieReactModule from "@lottiefiles/react-lottie-player";
 import {
   ChevronLeft, Star, Calendar, Tv, AlertTriangle, Ban,
   Languages, RefreshCcw, Server, ExternalLink, SkipForward,
 } from "lucide-react";
+const LottieReact = (LottieReactModule as any).default || LottieReactModule;
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +37,7 @@ const Watch = () => {
   });
   const [iframeError, setIframeError] = useState(false);
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
+  const [iframeLoading, setIframeLoading] = useState(true);
 
   // keep URL in sync (so ep/lang are shareable)
   useEffect(() => {
@@ -60,7 +63,7 @@ const Watch = () => {
     }
   }, [anime.data]);
 
-  useEffect(() => { setIframeError(false); }, [episode, id, lang, source]);
+  useEffect(() => { setIframeError(false); setIframeLoading(true); }, [episode, id, lang, source]);
 
   const isUpcoming = useMemo(() => {
     const status = (anime.data?.status || "").toString();
@@ -114,14 +117,16 @@ const Watch = () => {
   const nextAiringLabel = useMemo(() => {
     if (!nextAiringEpisode?.aired) return null;
     try {
-      return new Date(nextAiringEpisode.aired).toLocaleString(undefined, {
+      return new Intl.DateTimeFormat("en-GB", {
+        weekday: "short",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
         hour: "2-digit",
         minute: "2-digit",
+        timeZone: "GMT",
         timeZoneName: "short",
-      });
+      }).format(new Date(nextAiringEpisode.aired));
     } catch {
       return nextAiringEpisode.aired;
     }
@@ -142,7 +147,7 @@ const Watch = () => {
     const broadcast = anime.data?.broadcast;
     const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
     const totalCount = typeof anime.data?.episodes === "number" ? anime.data.episodes : null;
-    const hasUpcomingEpisode = isAiring && totalCount !== null && totalCount > episodeList.length;
+    const hasUpcomingEpisode = totalCount !== null && totalCount > episodeList.length;
 
     if (nextAiringEpisode?.aired) {
       return {
@@ -152,6 +157,7 @@ const Watch = () => {
       };
     }
 
+    // Only show a schedule banner when we know there is an upcoming episode
     if (hasUpcomingEpisode) {
       return {
         episode: episodeList.length + 1,
@@ -160,16 +166,8 @@ const Watch = () => {
       };
     }
 
-    if (isAiring && broadcastText) {
-      return {
-        episode: episodeList.length + 1,
-        label: broadcastText,
-        subtitle: "Weekly schedule",
-      };
-    }
-
     return null;
-  }, [anime.data?.broadcast, anime.data?.episodes, episodeList.length, isAiring, nextAiringEpisode, nextAiringLabel]);
+  }, [anime.data?.broadcast, anime.data?.episodes, episodeList.length, nextAiringEpisode, nextAiringLabel]);
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {
@@ -427,16 +425,29 @@ const Watch = () => {
                   Loading player…
                 </div>
               ) : (
-                <iframe
-                  key={playerSrc}
-                  src={playerSrc}
-                  title="Player"
-                  allowFullScreen
-                  allow="autoplay; fullscreen; picture-in-picture"
-                  referrerPolicy="origin"
-                  className="absolute inset-0 w-full h-full"
-                  onError={() => setIframeError(true)}
-                />
+                <>
+                  <iframe
+                    key={playerSrc}
+                    src={playerSrc}
+                    title="Player"
+                    allowFullScreen
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    referrerPolicy="origin"
+                    className="absolute inset-0 w-full h-full"
+                    onError={() => setIframeError(true)}
+                    onLoad={() => setIframeLoading(false)}
+                  />
+                  {iframeLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <LottieReact
+                        src="https://lottie.host/6db8b2f8-bae1-47a5-b169-906ea6c9d15c/4lpTfJFOtD.json"
+                        loop
+                        autoplay
+                        style={{ width: 120, height: 120 }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -448,6 +459,13 @@ const Watch = () => {
                 <span>{scheduleBanner.label || "Coming soon"}</span>
                 <span>•</span>
                 <span>{scheduleBanner.subtitle}</span>
+              </div>
+            )}
+
+            {/* ShareThis Buttons */}
+            {anime.data && (
+              <div className="mt-4">
+                <div className="sharethis-inline-share-buttons"></div>
               </div>
             )}
 

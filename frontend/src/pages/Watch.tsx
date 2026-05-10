@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { jikan } from "@/lib/jikan";
 import { CommentsRatings } from "@/components/CommentsRatings";
 import { AdSlot } from "@/components/AdSlot";
-import { EpisodeCarousel } from "@/components/EpisodeCarousel";
 import { api, type StreamOut } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";

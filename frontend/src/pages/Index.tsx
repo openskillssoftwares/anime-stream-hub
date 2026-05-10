@@ -24,13 +24,14 @@ const Index = () => {
   const top = useQuery({ queryKey: ["top"], queryFn: jikan.topAll, staleTime: 5 * 60_000 });
   const upcoming = useQuery({ queryKey: ["upcoming"], queryFn: jikan.upcoming, staleTime: 5 * 60_000 });
   const newReleases = useQuery({ queryKey: ["new"], queryFn: jikan.newReleases, staleTime: 5 * 60_000 });
+  const featured = useQuery({ queryKey: ["featured"], queryFn: jikan.topAll, staleTime: 5 * 60_000 });
   const search = useQuery({
     queryKey: ["search", q],
     queryFn: () => jikan.search(q),
     enabled: q.length > 0,
   });
 
-  const featured = trending.data?.[0];
+  const heroFeatured = trending.data?.[0];
 
   return (
     <div className="min-h-screen bg-background">
@@ -41,8 +42,9 @@ const Index = () => {
         </main>
       ) : (
         <main>
-          <Hero featured={featured} />
+          <Hero featured={heroFeatured} />
           <ContinueWatchingRow />
+          <AnimeRow id="featured" eyebrow="Curated selection" title="Featured top 10" items={featured.data} loading={featured.isLoading} numbered compact />
           <AnimeRow id="trending" eyebrow="On the rise" title="Trending now" items={trending.data} loading={trending.isLoading} />
           <AnimeRow id="new" eyebrow="Hot off the press" title="New releases" items={newReleases.data} loading={newReleases.isLoading} />
           <AnimeRow id="season" eyebrow="Currently airing" title="This season" items={season.data} loading={season.isLoading} />
@@ -52,7 +54,6 @@ const Index = () => {
               <AdSlot slot="home-mid" className="mt-6" />
             </div>
           </div>
-          <AnimeRow id="top" eyebrow="Featured" title="Top 10 anime" items={top.data} loading={top.isLoading} numbered compact />
           <AnimeRow eyebrow="Coming soon" title="Upcoming releases" items={upcoming.data} loading={upcoming.isLoading} />
         </main>
       )}

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   ChevronLeft, Star, Calendar, Tv, AlertTriangle, Ban,
-  Languages, RefreshCcw, Server, ExternalLink, SkipForward,
+  Languages, RefreshCcw, Server, ExternalLink, SkipForward, MessageSquare,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -81,20 +81,31 @@ const Watch = () => {
     }
 
     if (hasApiEps) {
-      return (eps.data as AnimeEpisode[]).filter((ep) => {
+      const filtered = (eps.data as AnimeEpisode[]).filter((ep) => {
         if (!ep || !ep.aired) return true;
         const d = new Date(ep.aired);
         return isNaN(d.getTime()) ? true : d.getTime() <= Date.now();
       });
+      // If we filtered out all episodes, fall back to synthesis
+      if (filtered.length > 0) return filtered;
     }
 
-    // Don't synthesize placeholder episodes for titles that haven't aired yet
+    // Synthesize placeholder episodes for titles that have aired or are airing
     if (!isUpcoming && typeof anime.data?.episodes === "number" && anime.data.episodes > 0) {
       return Array.from({ length: anime.data.episodes }, (_, i) => ({
         mal_id: i + 1,
         title: `Episode ${i + 1}`,
         episodeNumber: i + 1,
       }));
+    }
+
+    // Last resort: if not upcoming, include at least episode 1
+    if (!isUpcoming) {
+      return [{
+        mal_id: 1,
+        title: "Episode 1",
+        episodeNumber: 1,
+      }];
     }
 
     return [] as AnimeEpisode[];
@@ -142,30 +153,30 @@ const Watch = () => {
     : null;
 
   const scheduleBanner = useMemo(() => {
+    if (!isUpcoming) return null;
+
     const broadcast = anime.data?.broadcast;
     const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
-    const totalCount = typeof anime.data?.episodes === "number" ? anime.data.episodes : null;
-    const hasUpcomingEpisode = totalCount !== null && totalCount > episodeList.length;
+    const releaseDate = typeof anime.data?.aired === "object" ? anime.data.aired?.from || null : null;
+    const releaseLabel = releaseDate
+      ? new Intl.DateTimeFormat("en-GB", {
+          weekday: "short",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          timeZone: "GMT",
+          timeZoneName: "short",
+        }).format(new Date(releaseDate))
+      : null;
 
-    if (nextAiringEpisode?.aired) {
-      return {
-        episode: nextAiringEpisode.episodeNumber,
-        label: nextAiringLabel,
-        subtitle: "Next episode is scheduled",
-      };
-    }
-
-    // Only show a schedule banner when we know there is an upcoming episode
-    if (hasUpcomingEpisode) {
-      return {
-        episode: episodeList.length + 1,
-        label: broadcastText || null,
-        subtitle: broadcastText ? "Weekly schedule" : "New episode coming soon",
-      };
-    }
-
-    return null;
-  }, [anime.data?.broadcast, anime.data?.episodes, episodeList.length, nextAiringEpisode, nextAiringLabel]);
+    return {
+      episode: 1,
+      label: releaseLabel || broadcastText || null,
+      subtitle: releaseLabel ? "Upcoming release" : broadcastText ? "Weekly schedule" : "Coming soon",
+    };
+  }, [anime.data?.aired, anime.data?.broadcast, isUpcoming]);
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {
@@ -222,6 +233,8 @@ const Watch = () => {
       toast.error('Failed to submit report', { id: 'report-stream' });
     }
   };
+
+  const communityLink = `/community?scope=anime&mal_id=${malId}${anime.data?.title ? `&title=${encodeURIComponent(anime.data.title_english || anime.data.title)}` : ""}`;
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);
@@ -369,6 +382,11 @@ const Watch = () => {
               <Button size="sm" variant="ghost" onClick={handleReportStream} className="h-8 px-2" title="Report broken stream">
                 <AlertTriangle className="w-3.5 h-3.5 mr-1" /> Report
               </Button>
+              <Button asChild size="sm" variant="ghost" className="h-8 px-2" title="Open community discussion">
+                <Link to={communityLink}>
+                  <MessageSquare className="w-3.5 h-3.5 mr-1" /> Discuss
+                </Link>
+              </Button>
               {nextEpisodeNumber && (
                 <Button
                   size="sm" variant="ghost" onClick={() => setEpisode(nextEpisodeNumber)}
@@ -387,7 +405,11 @@ const Watch = () => {
 
             {/* Player */}
             <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-cinematic ring-1 ring-border/60">
-              {blocked.data?.blocked ? (
+              {anime.isLoading || eps.isLoading || blocked.isLoading ? (
+                <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
+                  Loading player…
+                </div>
+              ) : blocked.data?.blocked ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
                   <Ban className="w-10 h-10 text-destructive" />
                   <p className="font-display text-2xl">This title is unavailable</p>
@@ -410,7 +432,7 @@ const Watch = () => {
                     Report missing title <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
-              ) : isUpcoming || episodeList.length === 0 ? (
+              ) : isUpcoming ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3 bg-gradient-to-b from-background/20 to-background/80">
                   <AlertTriangle className="w-10 h-10 text-primary" />
                   <p className="font-display text-2xl">Coming soon</p>
@@ -438,7 +460,16 @@ const Watch = () => {
                   {iframeLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
                       <div className="flex flex-col items-center gap-3">
-                        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                        <div className="w-28 h-28">
+                          <video
+                            src="/loading.webm"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
                         <p className="text-sm text-muted-foreground">Loading player...</p>
                       </div>
                     </div>

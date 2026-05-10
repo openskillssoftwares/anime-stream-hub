@@ -153,30 +153,40 @@ const Watch = () => {
     : null;
 
   const scheduleBanner = useMemo(() => {
-    if (!isUpcoming) return null;
+    if (isUpcoming) {
+      const broadcast = anime.data?.broadcast;
+      const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
+      const releaseDate = typeof anime.data?.aired === "object" ? anime.data.aired?.from || null : null;
+      const releaseLabel = releaseDate
+        ? new Intl.DateTimeFormat("en-GB", {
+            weekday: "short",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "GMT",
+            timeZoneName: "short",
+          }).format(new Date(releaseDate))
+        : null;
 
-    const broadcast = anime.data?.broadcast;
-    const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
-    const releaseDate = typeof anime.data?.aired === "object" ? anime.data.aired?.from || null : null;
-    const releaseLabel = releaseDate
-      ? new Intl.DateTimeFormat("en-GB", {
-          weekday: "short",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "GMT",
-          timeZoneName: "short",
-        }).format(new Date(releaseDate))
-      : null;
+      return {
+        episode: 1,
+        label: releaseLabel || broadcastText || null,
+        subtitle: releaseLabel ? "Upcoming release" : broadcastText ? "Weekly schedule" : "Coming soon",
+      };
+    }
 
-    return {
-      episode: 1,
-      label: releaseLabel || broadcastText || null,
-      subtitle: releaseLabel ? "Upcoming release" : broadcastText ? "Weekly schedule" : "Coming soon",
-    };
-  }, [anime.data?.aired, anime.data?.broadcast, isUpcoming]);
+    if (isAiring && nextAiringEpisode?.aired && nextAiringLabel) {
+      return {
+        episode: nextAiringEpisode.episodeNumber,
+        label: nextAiringLabel,
+        subtitle: "Next episode is scheduled",
+      };
+    }
+
+    return null;
+  }, [anime.data?.aired, anime.data?.broadcast, isAiring, isUpcoming, nextAiringEpisode, nextAiringLabel]);
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {

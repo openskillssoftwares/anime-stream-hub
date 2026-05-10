@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { jikan } from "@/lib/jikan";
 import { CommentsRatings } from "@/components/CommentsRatings";
 import { AdSlot } from "@/components/AdSlot";
+import { EpisodeCarousel } from "@/components/EpisodeCarousel";
 import { api, type StreamOut } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -295,10 +296,10 @@ const Watch = () => {
           if (resolved.anikoto_id) {
             setAnikotoId(resolved.anikoto_id);
             setSource("anikoto");
-            toast.warning("Server 1 lookup failed. Trying Server 2 instead.");
+            toast.info("Trying alternative server...");
           }
         } catch {
-          // keep the existing fallback UI
+          toast.error("Stream unavailable. Try another episode or server.");
         }
       })();
     }
@@ -333,24 +334,35 @@ const Watch = () => {
     if (!anime.data || typeof window === "undefined") return;
 
     const reloadShareThis = () => {
-      const globalAny = window as any;
-      if (globalAny.__sharethis__?.load) {
-        globalAny.__sharethis__.load("inline-share-buttons");
-      } else if (globalAny.sharethis?.load) {
-        globalAny.sharethis.load("inline-share-buttons");
+      try {
+        const globalAny = window as any;
+        // Try multiple ways to reload ShareThis
+        if (globalAny.__sharethis__?.load) {
+          globalAny.__sharethis__.load("inline-share-buttons");
+        } else if (globalAny.sharethis?.load) {
+          globalAny.sharethis.load("inline-share-buttons");
+        } else if (globalAny.stLight?.parse) {
+          globalAny.stLight.parse(document.querySelector(".sharethis-inline-share-buttons"));
+        }
+      } catch (e) {
+        // Silent fail
       }
     };
 
-    reloadShareThis();
-
+    // Small delay to ensure DOM is ready
     const timer = window.setTimeout(() => {
-      const host = document.querySelector(".sharethis-inline-share-buttons");
-      const hasRenderedButtons = !!host && host.childElementCount > 0;
-      setShareFallback(!hasRenderedButtons);
-    }, 1500);
+      reloadShareThis();
+      
+      // Check again after 1s to ensure buttons rendered
+      window.setTimeout(() => {
+        const host = document.querySelector(".sharethis-inline-share-buttons");
+        const hasButtons = !!host && host.childElementCount > 0;
+        setShareFallback(!hasButtons);
+      }, 1000);
+    }, 100);
 
     return () => window.clearTimeout(timer);
-  }, [anime.data?.mal_id]);
+  }, [anime.data?.mal_id, pageUrl, shareTitle]);
 
   const pageUrl = typeof window !== "undefined" ? window.location.href : "";
   const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
@@ -541,14 +553,43 @@ const Watch = () => {
                   <AlertTriangle className="w-10 h-10 text-primary" />
                   <p className="font-display text-2xl">Stream unavailable</p>
                   <p className="text-sm text-muted-foreground max-w-md">
-                    The provider couldn't load this episode. Try toggling SUB ↔ DUB, switching server, or another episode.
+                    This episode is not currently available on the streaming provider.
                   </p>
+                  <div className="mt-4 flex flex-col gap-2 text-xs">
+                    <button
+                      onClick={() => stream.refetch()}
+                      className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                      Try Again
+                    </button>
+                    {source === "mal" && (
+                      <button
+                        onClick={() => {
+                          toast.loading("Checking Server 2...", { id: "fallback-check" });
+                          api.anikotoResolve(malId).then((res) => {
+                            if (res.anikoto_id) {
+                              setAnikotoId(res.anikoto_id);
+                              setSource("anikoto");
+                              toast.success(`Found on Server 2!`, { id: "fallback-check" });
+                            } else {
+                              toast.error("Not available on Server 2 either", { id: "fallback-check" });
+                            }
+                          }).catch(() => {
+                            toast.error("Server 2 check failed", { id: "fallback-check" });
+                          });
+                        }}
+                        className="px-4 py-2 rounded-md bg-secondary hover:bg-secondary/80"
+                      >
+                        Try Server 2
+                      </button>
+                    )}
+                  </div>
                   <a
                     href="https://megaplay.buzz/api#mal-anilist-coverage"
                     target="_blank" rel="noreferrer"
-                    className="text-xs text-primary hover:underline mt-2 inline-flex items-center gap-1"
+                    className="text-xs text-primary hover:underline mt-4 inline-flex items-center gap-1"
                   >
-                    Report missing title <ExternalLink className="w-3 h-3" />
+                    Check coverage → <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               ) : isUpcoming ? (
@@ -610,11 +651,12 @@ const Watch = () => {
 
             {/* ShareThis Buttons */}
             {anime.data && (
-              <div className="mt-4">
+              <div className="mt-6">
                 <div
                   className="sharethis-inline-share-buttons"
                   data-url={pageUrl}
                   data-title={shareTitle}
+                  data-description={anime.data.synopsis?.substring(0, 160) || "Watch anime on Hey Anime"}
                 />
                 {shareFallback && (
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -682,6 +724,19 @@ const Watch = () => {
                 {anime.data.synopsis && (
                   <p className="mt-6 text-foreground/85 leading-relaxed max-w-3xl">{anime.data.synopsis}</p>
                 )}
+              </div>
+            )}
+
+            {/* Episode Carousel Slider */}
+            {episodeList.length > 0 && (
+              <div className="mt-8">
+                <EpisodeCarousel
+                  episodes={episodeList}
+                  currentEpisode={episode}
+                  onEpisodeSelect={setEpisode}
+                  animeTitle={anime.data?.title_english || anime.data?.title || "Episode"}
+                  animeImage={anime.data?.images?.jpg?.large_image_url}
+                />
               </div>
             )}
           </motion.div>

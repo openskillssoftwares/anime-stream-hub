@@ -21,6 +21,7 @@ import Donation from "./pages/Donation";
 import Contact from "./pages/Contact";
 import NotFound from "./pages/NotFound";
 import FloatingAIButton from "@/components/FloatingAIButton";
+import SupabaseBanner from "@/components/SupabaseBanner";
 
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
       <Analytics />
       <BrowserRouter>
         <AuthProvider>
+          <SupabaseBanner />
           <InteractiveBackground />
           <Routes>
             <Route path="/" element={<Index />} />

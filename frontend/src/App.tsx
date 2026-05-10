@@ -19,6 +19,7 @@ import ResetPassword from "./pages/ResetPassword";
 import DMCA from "./pages/DMCA";
 import Donation from "./pages/Donation";
 import Contact from "./pages/Contact";
+import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
 import FloatingAIButton from "@/components/FloatingAIButton";
 import SupabaseBanner from "@/components/SupabaseBanner";
@@ -47,6 +48,7 @@ const App = () => (
             <Route path="/dmca" element={<DMCA />} />
             <Route path="/donation" element={<Donation />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/community" element={<Community />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="*" element={<NotFound />} />

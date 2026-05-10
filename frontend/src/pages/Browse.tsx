@@ -12,6 +12,7 @@ import { jikan, rankSearchResults, type Anime } from "@/lib/jikan";
 
 const TYPE_OPTIONS = ["", "tv", "movie", "ova", "ona", "special"] as const;
 const STATUS_OPTIONS = ["", "airing", "complete", "upcoming"] as const;
+const EXCLUDE_GENRES = [12, 49]; // Hentai (12), Erotica (49)
 const ORDER_OPTIONS = [
   { value: "score", label: "Top score" },
   { value: "popularity", label: "Most popular" },
@@ -58,9 +59,9 @@ const Browse = () => {
       status: status || undefined,
       order_by: order,
       sort: "desc",
-      genres: genres.length ? genres : undefined,
+      genres: genres.length ? genres.filter(g => !EXCLUDE_GENRES.includes(g)) : undefined,
       page,
-      limit: 24,
+      limit: 100,
     }),
     placeholderData: (prev) => prev,
   });
@@ -114,7 +115,7 @@ const Browse = () => {
         {/* genre chips */}
         {genreList.data && genreList.data.length > 0 && (
           <div className="mt-5 flex flex-wrap gap-2">
-            {genreList.data.slice(0, 30).map((g) => {
+            {genreList.data.filter(g => !EXCLUDE_GENRES.includes(g.mal_id)).slice(0, 30).map((g) => {
               const active = genres.includes(g.mal_id);
               return (
                 <button
@@ -169,7 +170,7 @@ const Browse = () => {
           <Button variant="outline" size="sm" disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</Button>
           <span className="text-sm text-muted-foreground">Page {page}</span>
-            <Button variant="outline" size="sm" disabled={orderedResults.length < 24}
+            <Button variant="outline" size="sm" disabled={orderedResults.length < 100}
                   onClick={() => setPage((p) => p + 1)}>Next →</Button>
         </div>
       </main>

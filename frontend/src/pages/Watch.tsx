@@ -2,12 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import * as LottieReactModule from "@lottiefiles/react-lottie-player";
 import {
   ChevronLeft, Star, Calendar, Tv, AlertTriangle, Ban,
   Languages, RefreshCcw, Server, ExternalLink, SkipForward,
 } from "lucide-react";
-const LottieReact = (LottieReactModule as any).default || LottieReactModule;
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -439,12 +437,10 @@ const Watch = () => {
                   />
                   {iframeLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                      <LottieReact
-                        src="https://lottie.host/6db8b2f8-bae1-47a5-b169-906ea6c9d15c/4lpTfJFOtD.json"
-                        loop
-                        autoplay
-                        style={{ width: 120, height: 120 }}
-                      />
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                        <p className="text-sm text-muted-foreground">Loading player...</p>
+                      </div>
                     </div>
                   )}
                 </>

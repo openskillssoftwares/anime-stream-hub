@@ -216,6 +216,9 @@ export const Navbar = () => {
           <Link to="/browse" className="hover:text-foreground transition-colors inline-flex items-center gap-2" data-testid="nav-browse">
             <Compass className="w-5 h-5" /> Browse
           </Link>
+          <Link to="/community" className="hover:text-foreground transition-colors inline-flex items-center gap-2">
+            <Dices className="w-5 h-5" /> Community
+          </Link>
           <a href="/#trending" className="hover:text-foreground transition-colors inline-flex items-center gap-2">
             <Flame className="w-5 h-5" /> Trending
           </a>

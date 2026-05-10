@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Play, Info } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import heroImg from "@/assets/hero-anime.jpg";
 import type { Anime } from "@/lib/jikan";
 import { FlameLottie } from "@/components/FlameLottie";
@@ -71,10 +72,10 @@ export const Hero = ({ featuredList }: { featuredList?: Anime[] }) => {
           {active ? (
             <>
               <Button asChild size="lg" className="bg-gradient-ember text-primary-foreground hover:opacity-90 shadow-glow rounded-full px-8">
-                <Link to={`/watch/${active.mal_id}`}><Play className="w-4 h-4 mr-2 fill-current" /> Watch now</Link>
+                <Link to={`/watch/${active.mal_id}?ep=1`}><Play className="w-4 h-4 mr-2 fill-current" /> Watch now</Link>
               </Button>
               <Button asChild size="lg" variant="outline" className="rounded-full px-8 border-border/60 glass">
-                <Link to={`/watch/${active.mal_id}`}><Info className="w-4 h-4 mr-2" /> More info</Link>
+                <Link to={`/watch/${active.mal_id}?ep=1`}><Info className="w-4 h-4 mr-2" /> More info</Link>
               </Button>
             </>
           ) : (
@@ -83,11 +84,33 @@ export const Hero = ({ featuredList }: { featuredList?: Anime[] }) => {
             </Button>
           )}
 
-          {list && list.length > 1 && (
-            <div className="ml-4 flex items-center gap-2">
-              {list.map((_, i) => (
-                <button key={i} onClick={() => setIndex(i)} aria-label={`Show featured ${i + 1}`} className={`h-2 w-6 rounded-full transition-colors ${i === index ? "bg-primary" : "bg-white/30"}`} />
-              ))}
+          {list && list.length > 0 && (
+            <div className="mt-8 w-full">
+              <Carousel opts={{ align: "start", loop: false }} className="w-full">
+                <CarouselContent className="-ml-2">
+                  {list.map((item, i) => {
+                    const isActive = i === index;
+                    const thumb = item.images?.jpg?.image_url || item.images?.jpg?.large_image_url || heroImg;
+                    return (
+                      <CarouselItem key={item.mal_id} className="pl-2 basis-1/4 sm:basis-1/6 md:basis-1/8 lg:basis-1/10">
+                        <button
+                          onClick={(e) => { e.preventDefault(); setIndex(i); }}
+                          className={`group relative block w-full overflow-hidden rounded-md transition-all ${isActive ? "ring-2 ring-primary" : "ring-1 ring-border/50"}`}
+                          title={item.title_english || item.title}
+                        >
+                          <img src={thumb} alt={item.title} className="w-full h-[120px] object-cover group-hover:scale-105 transition-transform" />
+                          <div className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">#{i + 1}</div>
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2">
+                            <p className="text-xs text-white line-clamp-2">{item.title_english || item.title}</p>
+                          </div>
+                        </button>
+                      </CarouselItem>
+                    );
+                  })}
+                </CarouselContent>
+                <CarouselPrevious className="hidden sm:flex -left-4" />
+                <CarouselNext className="hidden sm:flex -right-4" />
+              </Carousel>
             </div>
           )}
         </motion.div>

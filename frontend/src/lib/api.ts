@@ -115,6 +115,21 @@ export interface NoticeRow {
   created_at?: string;
 }
 
+export interface DiscussionRow {
+  id: string;
+  scope: "general" | "anime";
+  mal_id?: number | null;
+  root_id: string;
+  parent_id?: string | null;
+  title?: string | null;
+  body: string;
+  user_id: string;
+  user_name: string;
+  created_at: string;
+  edited_at?: string | null;
+  reply_count?: number;
+}
+
 export interface AuthProxyResult {
   session?: {
     access_token: string;
@@ -194,6 +209,16 @@ export const api = {
       `/users/${userId}/watchlist?limit=${limit}`),
   publicUserComments: (userId: string, limit = 30) =>
     req<CommentOut[]>(`/users/${userId}/comments?limit=${limit}`),
+
+  listDiscussions: (params: { scope?: "general" | "anime"; mal_id?: number | string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.scope) q.set("scope", params.scope);
+    if (params.mal_id !== undefined) q.set("mal_id", String(params.mal_id));
+    if (params.limit !== undefined) q.set("limit", String(params.limit));
+    return req<DiscussionRow[]>(`/discussions?${q.toString()}`);
+  },
+  createDiscussion: (payload: { scope: "general" | "anime"; mal_id?: number; title?: string; body: string; parent_id?: string | null }) =>
+    req<DiscussionRow>(`/discussions`, { method: "POST", body: JSON.stringify(payload) }),
 
   listComments: (malId: number | string) => req<CommentOut[]>(`/comments/${malId}`),
   addComment: (malId: number | string, body: string, parent_id?: string | null) =>

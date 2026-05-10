@@ -10,7 +10,7 @@ export const AnimeCard = ({ anime, rank, compact }: { anime: Anime; rank?: numbe
       transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       className={`group relative shrink-0 ${compact ? "w-[150px] md:w-[180px]" : "w-[180px] md:w-[210px]"}`}
     >
-      <Link to={`/watch/${anime.mal_id}`} className="block">
+      <Link to={`/watch/${anime.mal_id}?ep=1`} className="block">
         <div className="relative aspect-[2/3] overflow-hidden rounded-lg bg-card shadow-card">
           <img
             src={anime.images.jpg.large_image_url}

@@ -177,16 +177,29 @@ const Watch = () => {
       };
     }
 
-    if (isAiring && nextAiringEpisode?.aired && nextAiringLabel) {
-      return {
-        episode: nextAiringEpisode.episodeNumber,
-        label: nextAiringLabel,
-        subtitle: "Next episode is scheduled",
-      };
+    // For airing shows: show next episode if available, otherwise show broadcast schedule
+    if (isAiring) {
+      if (nextAiringEpisode?.aired && nextAiringLabel) {
+        return {
+          episode: nextAiringEpisode.episodeNumber,
+          label: nextAiringLabel,
+          subtitle: "Next episode is scheduled",
+        };
+      }
+      // Fallback to broadcast schedule for airing shows without next episode data
+      const broadcast = anime.data?.broadcast;
+      const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
+      if (broadcastText) {
+        return {
+          episode: (episodeList.length || 0) + 1,
+          label: broadcastText,
+          subtitle: "Weekly broadcast schedule",
+        };
+      }
     }
 
     return null;
-  }, [anime.data?.aired, anime.data?.broadcast, isAiring, isUpcoming, nextAiringEpisode, nextAiringLabel]);
+  }, [anime.data?.aired, anime.data?.broadcast, isAiring, isUpcoming, nextAiringEpisode, nextAiringLabel, episodeList.length]);
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {
@@ -245,6 +258,13 @@ const Watch = () => {
   };
 
   const communityLink = `/community?scope=anime&mal_id=${malId}${anime.data?.title ? `&title=${encodeURIComponent(anime.data.title_english || anime.data.title)}` : ""}`;
+
+  // Trigger ShareThis parsing when anime changes
+  useEffect(() => {
+    if (anime.data && typeof window !== "undefined" && (window as any).sharethis) {
+      (window as any).sharethis.makeSticky();
+    }
+  }, [anime.data?.mal_id]);
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);
@@ -502,7 +522,11 @@ const Watch = () => {
             {/* ShareThis Buttons */}
             {anime.data && (
               <div className="mt-4">
-                <div className="sharethis-inline-share-buttons"></div>
+                <div
+                  className="sharethis-inline-share-buttons"
+                  data-url={typeof window !== "undefined" ? window.location.href : ""}
+                  data-title={anime.data?.title_english || anime.data?.title}
+                />
               </div>
             )}
 

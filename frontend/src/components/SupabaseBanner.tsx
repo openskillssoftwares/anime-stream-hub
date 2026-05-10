@@ -12,7 +12,8 @@ export default function SupabaseBanner() {
         const res = await fetch(`${import.meta.env.VITE_BACKEND_URL || ''}/health`);
         if (!res.ok) throw new Error('health check failed');
         const j = await res.json();
-        if (mounted) setDown(!j.ok || !j.details?.supabase);
+        const commentsOk = j?.details?.comments;
+        if (mounted) setDown(!j.ok || commentsOk === false);
       } catch (err) {
         if (mounted) setDown(true);
       }

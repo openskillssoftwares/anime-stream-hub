@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   ChevronLeft, Star, Calendar, Tv, AlertTriangle, Ban,
-  Languages, RefreshCcw, Server, ExternalLink, SkipForward, MessageSquare,
+  Languages, RefreshCcw, Server, ExternalLink, SkipForward, MessageSquare, Share2,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ const Watch = () => {
   const [iframeError, setIframeError] = useState(false);
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
+  const [shareFallback, setShareFallback] = useState(false);
 
   // keep URL in sync (so ep/lang are shareable)
   useEffect(() => {
@@ -61,16 +62,46 @@ const Watch = () => {
     }
   }, [anime.data]);
 
+  // Restore user's saved progress for this anime (only if episode not explicitly set via URL)
+  useEffect(() => {
+    if (!user || !malId || searchParams.get("ep") !== null || !eps.data || eps.data.length === 0) {
+      return; // Episode was explicitly set in URL, or user/anime not ready
+    }
+
+    api.myProgress(100)
+      .then((progress) => {
+        const savedProgress = progress.find((p) => p.mal_id === malId);
+        if (savedProgress && savedProgress.episode > 0) {
+          // Ensure saved episode is within valid range
+          const episodeNumbers = (eps.data as AnimeEpisode[]).map((e) => e.episodeNumber).filter(Boolean);
+          if (episodeNumbers.includes(savedProgress.episode) || savedProgress.episode <= (anime.data?.episodes || 999)) {
+            setEpisode(savedProgress.episode);
+          }
+        }
+      })
+      .catch(() => {
+        // Silent fail — use default episode 1
+      });
+  }, [user, malId, searchParams, eps.data, anime.data?.episodes]);
+
   useEffect(() => { setIframeError(false); setIframeLoading(true); }, [episode, id, lang, source]);
 
   const isUpcoming = useMemo(() => {
-    const status = (anime.data?.status || "").toString();
-    return /not yet aired|upcoming/i.test(status);
-  }, [anime.data?.status]);
+    const status = (anime.data?.status || "").toString().toLowerCase();
+    const statusSaysUpcoming = /not yet aired|upcoming|not yet released/.test(status);
+    const hasReleasedEpisode = Array.isArray(eps.data)
+      && (eps.data as AnimeEpisode[]).some((ep) => {
+        if (!ep?.aired) return false;
+        const t = new Date(ep.aired).getTime();
+        return Number.isFinite(t) && t <= Date.now();
+      });
+    return statusSaysUpcoming && !hasReleasedEpisode;
+  }, [anime.data?.status, eps.data]);
 
   const isAiring = useMemo(() => {
-    const status = (anime.data?.status || "").toString();
-    return /airing|currently airing|ongoing/i.test(status);
+    const status = (anime.data?.status || "").toString().toLowerCase();
+    if (/finished airing|completed|ended/.test(status)) return false;
+    return /currently airing|airing|ongoing|releasing/.test(status);
   }, [anime.data?.status]);
 
   const episodeList = (() => {
@@ -141,6 +172,70 @@ const Watch = () => {
     }
   }, [nextAiringEpisode]);
 
+  const nextBroadcastGmtLabel = useMemo(() => {
+    if (!isAiring || nextAiringLabel) return null;
+    const broadcast = anime.data?.broadcast;
+    if (!broadcast) return null;
+
+    const dayRaw = (broadcast.day || broadcast.string || "").toLowerCase();
+    const timeRaw = (broadcast.time || broadcast.string || "").toLowerCase();
+    const dayMap: Record<string, number> = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+    };
+
+    const targetDayEntry = Object.entries(dayMap).find(([name]) => dayRaw.includes(name));
+    const targetDow = targetDayEntry?.[1];
+    const timeMatch = timeRaw.match(/(\d{1,2}):(\d{2})/);
+    if (targetDow === undefined || !timeMatch) return null;
+
+    const hh = Number(timeMatch[1]);
+    const mm = Number(timeMatch[2]);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+
+    const sourceOffsetMinutes = /jst/.test(broadcast.string || "") ? 9 * 60 : 0;
+    const now = new Date();
+    const nowSource = new Date(now.getTime() + sourceOffsetMinutes * 60_000);
+    const nowSourceDow = nowSource.getUTCDay();
+    let daysAhead = (targetDow - nowSourceDow + 7) % 7;
+
+    const passedToday =
+      daysAhead === 0 &&
+      (hh < nowSource.getUTCHours() || (hh === nowSource.getUTCHours() && mm <= nowSource.getUTCMinutes()));
+    if (passedToday) daysAhead = 7;
+
+    const targetSourcePseudoUtc = Date.UTC(
+      nowSource.getUTCFullYear(),
+      nowSource.getUTCMonth(),
+      nowSource.getUTCDate() + daysAhead,
+      hh,
+      mm,
+      0,
+      0,
+    );
+    const targetUtc = new Date(targetSourcePseudoUtc - sourceOffsetMinutes * 60_000);
+
+    try {
+      return new Intl.DateTimeFormat("en-GB", {
+        weekday: "short",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "GMT",
+        timeZoneName: "short",
+      }).format(targetUtc);
+    } catch {
+      return null;
+    }
+  }, [anime.data?.broadcast, isAiring, nextAiringLabel]);
+
   const totalEpisodes = episodeList.length;
   const currentEpisodeIndex = useMemo(
     () => episodeList.findIndex((ep) => ep.episodeNumber === episode),
@@ -153,31 +248,7 @@ const Watch = () => {
     : null;
 
   const scheduleBanner = useMemo(() => {
-    if (isUpcoming) {
-      const broadcast = anime.data?.broadcast;
-      const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
-      const releaseDate = typeof anime.data?.aired === "object" ? anime.data.aired?.from || null : null;
-      const releaseLabel = releaseDate
-        ? new Intl.DateTimeFormat("en-GB", {
-            weekday: "short",
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "GMT",
-            timeZoneName: "short",
-          }).format(new Date(releaseDate))
-        : null;
-
-      return {
-        episode: 1,
-        label: releaseLabel || broadcastText || null,
-        subtitle: releaseLabel ? "Upcoming release" : broadcastText ? "Weekly schedule" : "Coming soon",
-      };
-    }
-
-    // For airing shows: show next episode if available, otherwise show broadcast schedule
+    // Show schedule only for actively airing shows.
     if (isAiring) {
       if (nextAiringEpisode?.aired && nextAiringLabel) {
         return {
@@ -187,19 +258,17 @@ const Watch = () => {
         };
       }
       // Fallback to broadcast schedule for airing shows without next episode data
-      const broadcast = anime.data?.broadcast;
-      const broadcastText = broadcast?.string || [broadcast?.day, broadcast?.time].filter(Boolean).join(" at ");
-      if (broadcastText) {
+      if (nextBroadcastGmtLabel) {
         return {
           episode: (episodeList.length || 0) + 1,
-          label: broadcastText,
-          subtitle: "Weekly broadcast schedule",
+          label: nextBroadcastGmtLabel,
+          subtitle: "Weekly broadcast schedule (GMT)",
         };
       }
     }
 
     return null;
-  }, [anime.data?.aired, anime.data?.broadcast, isAiring, isUpcoming, nextAiringEpisode, nextAiringLabel, episodeList.length]);
+  }, [isAiring, nextAiringEpisode, nextAiringLabel, nextBroadcastGmtLabel, episodeList.length]);
 
   useEffect(() => {
     if (!Number.isFinite(episode) || episode < 1) {
@@ -259,12 +328,32 @@ const Watch = () => {
 
   const communityLink = `/community?scope=anime&mal_id=${malId}${anime.data?.title ? `&title=${encodeURIComponent(anime.data.title_english || anime.data.title)}` : ""}`;
 
-  // Trigger ShareThis parsing when anime changes
+  // Trigger ShareThis parsing when anime changes and fall back to native share links if blocked.
   useEffect(() => {
-    if (anime.data && typeof window !== "undefined" && (window as any).sharethis) {
-      (window as any).sharethis.makeSticky();
-    }
+    if (!anime.data || typeof window === "undefined") return;
+
+    const reloadShareThis = () => {
+      const globalAny = window as any;
+      if (globalAny.__sharethis__?.load) {
+        globalAny.__sharethis__.load("inline-share-buttons");
+      } else if (globalAny.sharethis?.load) {
+        globalAny.sharethis.load("inline-share-buttons");
+      }
+    };
+
+    reloadShareThis();
+
+    const timer = window.setTimeout(() => {
+      const host = document.querySelector(".sharethis-inline-share-buttons");
+      const hasRenderedButtons = !!host && host.childElementCount > 0;
+      setShareFallback(!hasRenderedButtons);
+    }, 1500);
+
+    return () => window.clearTimeout(timer);
   }, [anime.data?.mal_id]);
+
+  const pageUrl = typeof window !== "undefined" ? window.location.href : "";
+  const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);
@@ -524,9 +613,45 @@ const Watch = () => {
               <div className="mt-4">
                 <div
                   className="sharethis-inline-share-buttons"
-                  data-url={typeof window !== "undefined" ? window.location.href : ""}
-                  data-title={anime.data?.title_english || anime.data?.title}
+                  data-url={pageUrl}
+                  data-title={shareTitle}
                 />
+                {shareFallback && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-muted-foreground inline-flex items-center gap-1">
+                      <Share2 className="w-3.5 h-3.5" /> Share:
+                    </span>
+                    <a
+                      className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
+                      href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(pageUrl)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      X
+                    </a>
+                    <a
+                      className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
+                      href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Facebook
+                    </a>
+                    <button
+                      type="button"
+                      className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
+                      onClick={() => {
+                        navigator.clipboard.writeText(pageUrl).then(() => {
+                          toast.success("Link copied");
+                        }).catch(() => {
+                          toast.error("Could not copy link");
+                        });
+                      }}
+                    >
+                      Copy link
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

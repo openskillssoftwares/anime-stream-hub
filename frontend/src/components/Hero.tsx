@@ -35,7 +35,7 @@ export const Hero = ({ featuredList }: { featuredList?: Anime[] }) => {
 
   const active = list ? list[index] : undefined;
   const bg = active?.images?.jpg?.large_image_url || heroImg;
-  const title = active?.title_english || active?.title || "Stories worth losing sleep over.";
+  const title = active?.title_english || active?.title || "Forgetting is like a wound. The wound may heal, but it has already left a scar. -Monkey D. Luffy, One Piece";
 
   return (
     <section
@@ -55,7 +55,7 @@ export const Hero = ({ featuredList }: { featuredList?: Anime[] }) => {
         </motion.div>
 
         <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.1 }} className="text-xs md:text-sm uppercase tracking-[0.35em] text-primary mb-4">
-          {list ? "Monthly featured top 10" : "An editorial anime experience"}
+          {list ? "Monthly featured top 10" : "An wonderful editorial anime experience"}
         </motion.p>
 
         <motion.h1 initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.2 }} className="font-display text-5xl md:text-7xl lg:text-8xl font-semibold max-w-4xl text-balance leading-[1.05]">

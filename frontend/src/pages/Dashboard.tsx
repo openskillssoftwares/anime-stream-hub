@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import { fetchMalList, toDbStatus, buildMalXml, downloadFile } from "@/lib/mal";
 import { api, type ProgressRow } from "@/lib/api";
@@ -23,6 +24,7 @@ import { api, type ProgressRow } from "@/lib/api";
 interface Profile {
   display_name: string | null;
   mal_username: string | null;
+  avatar_url: string | null;
 }
 interface WatchlistRow {
   id: string;
@@ -38,7 +40,7 @@ interface WatchlistRow {
 const Dashboard = () => {
   const { user, loading: authLoading, signOut } = useAuth();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<Profile>({ display_name: "", mal_username: "" });
+  const [profile, setProfile] = useState<Profile>({ display_name: "", mal_username: "", avatar_url: "" });
   const [watchlist, setWatchlist] = useState<WatchlistRow[]>([]);
   const [savingProfile, setSavingProfile] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -66,10 +68,19 @@ const Dashboard = () => {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data: p } = await supabase.from("profiles").select("display_name, mal_username").eq("user_id", user.id).maybeSingle();
+      const { data: p } = await supabase.from("profiles").select("display_name, mal_username, avatar_url").eq("user_id", user.id).maybeSingle();
       if (p) {
-        setProfile({ display_name: p.display_name ?? "", mal_username: p.mal_username ?? "" });
+        setProfile({
+          display_name: p.display_name ?? "",
+          mal_username: p.mal_username ?? "",
+          avatar_url: p.avatar_url ?? `https://api.dicebear.com/9.x/notionists-neutral/svg?seed=${encodeURIComponent(user.id)}`,
+        });
         if (p.mal_username) setMalUser(p.mal_username);
+      } else {
+        setProfile((current) => ({
+          ...current,
+          avatar_url: `https://api.dicebear.com/9.x/notionists-neutral/svg?seed=${encodeURIComponent(user.id)}`,
+        }));
       }
       const { data: wl } = await supabase.from("watchlist").select("*").eq("user_id", user.id).order("updated_at", { ascending: false });
       setWatchlist((wl as WatchlistRow[]) ?? []);
@@ -91,12 +102,38 @@ const Dashboard = () => {
     if (!user) return;
     setSavingProfile(true);
     const { error } = await supabase.from("profiles").upsert(
-      { user_id: user.id, display_name: profile.display_name?.trim() || null, mal_username: profile.mal_username?.trim() || null },
+      {
+        user_id: user.id,
+        display_name: profile.display_name?.trim() || null,
+        mal_username: profile.mal_username?.trim() || null,
+        avatar_url: profile.avatar_url?.trim() || null,
+      },
       { onConflict: "user_id" }
     );
     setSavingProfile(false);
     if (error) { toast.error(error.message); return; }
     toast.success("Profile saved");
+  };
+
+  const randomizeAvatar = async () => {
+    if (!user) return;
+    const seed = `${user.id}-${crypto.randomUUID()}`;
+    const avatarUrl = `https://api.dicebear.com/9.x/notionists-neutral/svg?seed=${encodeURIComponent(seed)}`;
+    setProfile((current) => ({ ...current, avatar_url: avatarUrl }));
+    const { error } = await supabase.from("profiles").upsert(
+      {
+        user_id: user.id,
+        display_name: profile.display_name?.trim() || null,
+        mal_username: profile.mal_username?.trim() || null,
+        avatar_url: avatarUrl,
+      },
+      { onConflict: "user_id" }
+    );
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Avatar updated");
   };
 
   const importMal = async () => {
@@ -342,6 +379,17 @@ const Dashboard = () => {
           {/* PROFILE */}
           <TabsContent value="profile" className="mt-6 max-w-xl space-y-4">
             <h2 className="font-display text-2xl font-semibold mb-2">Profile</h2>
+            <div className="flex items-center gap-4 p-4 rounded-lg bg-card/60 ring-1 ring-border/60">
+              <Avatar className="h-16 w-16 ring-1 ring-border/60">
+                <AvatarImage src={profile.avatar_url || undefined} alt={profile.display_name || user?.email || "avatar"} />
+                <AvatarFallback>{(profile.display_name || user?.email || "?").slice(0, 1).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">Public avatar</p>
+                <p className="text-xs text-muted-foreground">Generated automatically if you do not choose one.</p>
+              </div>
+              <Button type="button" variant="outline" onClick={randomizeAvatar}>Randomize</Button>
+            </div>
             <Field label="Display name" id="dn" value={profile.display_name ?? ""} onChange={(v) => setProfile(p => ({ ...p, display_name: v }))} />
             <Field label="MAL username" id="mu" value={profile.mal_username ?? ""} onChange={(v) => setProfile(p => ({ ...p, mal_username: v }))} hint="Linked when you import; you can change it anytime." />
             <Button onClick={saveProfile} disabled={savingProfile} className="bg-gradient-ember text-primary-foreground">

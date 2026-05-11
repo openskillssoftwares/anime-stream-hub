@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Home,
   Compass,
+  Video,
   Flame,
   CalendarDays,
   Trophy,
@@ -218,6 +219,9 @@ export const Navbar = () => {
           </Link>
           <Link to="/community" className="hover:text-foreground transition-colors inline-flex items-center gap-2">
             <Dices className="w-5 h-5" /> Community
+          </Link>
+          <Link to="/rooms" className="hover:text-foreground transition-colors inline-flex items-center gap-2">
+            <Video className="w-5 h-5" /> Rooms
           </Link>
           <a href="/#trending" className="hover:text-foreground transition-colors inline-flex items-center gap-2">
             <Flame className="w-5 h-5" /> Trending

@@ -10,6 +10,7 @@ import {
   Send,
   Users,
   MessageSquare,
+  Trash2,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Badge } from "@/components/ui/badge";
@@ -70,6 +71,7 @@ const Community = () => {
   const [body, setBody] = useState("");
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const anime = useQuery({
     queryKey: ["community-anime", malId],
@@ -81,6 +83,14 @@ const Community = () => {
     queryKey: ["community-discussions", scope, malId],
     queryFn: () => api.listDiscussions({ scope, mal_id: scope === "anime" ? malId ?? undefined : undefined, limit: 250 }),
   });
+
+  useEffect(() => {
+    if (!user) {
+      setIsAdmin(false);
+      return;
+    }
+    api.me().then((me) => setIsAdmin(me.is_admin)).catch(() => setIsAdmin(false));
+  }, [user]);
 
   useEffect(() => {
     setTitle(animeTitle);
@@ -165,13 +175,30 @@ const Community = () => {
     }
   };
 
+  const deleteThread = async (threadId: string) => {
+    if (!user) {
+      toast.error("Sign in to delete");
+      return;
+    }
+    if (!confirm("Delete this discussion?")) return;
+    try {
+      await api.deleteDiscussion(threadId);
+      toast.success("Discussion deleted");
+      discussions.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete discussion");
+    }
+  };
+
   const Thread = ({ node, depth = 0 }: { node: DiscussionNode; depth?: number }) => (
     <div className={depth > 0 ? "ml-6 border-l border-border/60 pl-4" : ""}>
       <Card className="bg-card/70 backdrop-blur-sm border-border/60">
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center gap-2 justify-between">
             <div className="min-w-0">
-              {node.title && <CardTitle className="text-lg line-clamp-2">{node.title}</CardTitle>}
+              {node.deleted ? (
+                <CardTitle className="text-lg line-clamp-2 text-muted-foreground">Removed discussion</CardTitle>
+              ) : node.title && <CardTitle className="text-lg line-clamp-2">{node.title}</CardTitle>}
               <CardDescription className="mt-1 flex flex-wrap items-center gap-2">
                 <span className="font-medium text-foreground">{node.user_name}</span>
                 <span>•</span>
@@ -179,14 +206,27 @@ const Community = () => {
                 {depth === 0 && node.reply_count ? <Badge variant="secondary">{node.reply_count} replies</Badge> : null}
               </CardDescription>
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setReplyingTo(node.id)}>
-              Reply
-            </Button>
+            <div className="flex items-center gap-2">
+              {!node.deleted && (
+                <Button variant="ghost" size="sm" onClick={() => setReplyingTo(node.id)}>
+                  Reply
+                </Button>
+              )}
+              {(user && (user.id === node.user_id || isAdmin) && !node.deleted) && (
+                <Button variant="ghost" size="sm" onClick={() => deleteThread(node.id)} className="text-muted-foreground hover:text-destructive">
+                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="whitespace-pre-wrap leading-7 text-sm text-foreground/90">{node.body}</p>
-          {replyingTo === node.id && (
+          {node.deleted ? (
+            <p className="whitespace-pre-wrap leading-7 text-sm text-muted-foreground italic">This discussion was removed.</p>
+          ) : (
+            <p className="whitespace-pre-wrap leading-7 text-sm text-foreground/90">{node.body}</p>
+          )}
+          {replyingTo === node.id && !node.deleted && (
             <div className="space-y-3 rounded-lg border border-border/60 bg-background/40 p-4">
               <Textarea
                 value={replyBody}

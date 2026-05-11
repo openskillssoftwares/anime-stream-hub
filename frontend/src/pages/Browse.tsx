@@ -33,6 +33,28 @@ const Browse = () => {
 
   useEffect(() => { document.title = "Browse — Hey Anime"; }, []);
 
+  useEffect(() => {
+    const nextQ = params.get("q") || "";
+    const nextType = params.get("type") || "";
+    const nextStatus = params.get("status") || "";
+    const nextOrder = params.get("order_by") || "score";
+    const nextGenres = (params.get("genres") || "")
+      .split(",")
+      .map((s) => Number(s))
+      .filter(Boolean);
+    const nextPage = Number(params.get("page") || 1);
+
+    setQ((current) => (current === nextQ ? current : nextQ));
+    setType((current) => (current === nextType ? current : nextType));
+    setStatus((current) => (current === nextStatus ? current : nextStatus));
+    setOrder((current) => (current === nextOrder ? current : nextOrder));
+    setGenres((current) => {
+      const same = current.length === nextGenres.length && current.every((value, index) => value === nextGenres[index]);
+      return same ? current : nextGenres;
+    });
+    setPage((current) => (current === nextPage ? current : nextPage));
+  }, [params]);
+
   // sync url
   useEffect(() => {
     const u = new URLSearchParams();

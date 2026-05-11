@@ -356,19 +356,34 @@ const Watch = () => {
       }
     };
 
-    // Small delay to ensure DOM is ready
-    const timer = window.setTimeout(() => {
+    let attempts = 0;
+    let cancelled = false;
+
+    const poll = () => {
+      if (cancelled) return;
       reloadShareThis();
 
-      // Check again after 1s to ensure buttons rendered
-      window.setTimeout(() => {
-        const host = document.querySelector(".sharethis-inline-share-buttons");
-        const hasButtons = !!host && host.childElementCount > 0;
-        setShareFallback(!hasButtons);
-      }, 1000);
-    }, 100);
+      const host = document.querySelector(".sharethis-inline-share-buttons");
+      const hasButtons = !!host && host.childElementCount > 0;
+      if (hasButtons) {
+        setShareFallback(false);
+        return;
+      }
 
-    return () => window.clearTimeout(timer);
+      attempts += 1;
+      if (attempts < 8) {
+        window.setTimeout(poll, 250);
+      } else {
+        setShareFallback(true);
+      }
+    };
+
+    const timer = window.setTimeout(poll, 100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [anime.data, pageUrl, shareTitle]);
 
   // Player postMessage events: progress + auto-next + error fallback
@@ -662,6 +677,15 @@ const Watch = () => {
                   data-title={shareTitle}
                   data-description={anime.data.synopsis?.substring(0, 160) || "Watch anime on Hey Anime"}
                 />
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="text-muted-foreground">Watch party:</span>
+                  <Link
+                    to={`/rooms?mal_id=${malId}&episode=${episode}${anime.data.title ? `&title=${encodeURIComponent(anime.data.title_english || anime.data.title)}` : ""}`}
+                    className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
+                  >
+                    Create room
+                  </Link>
+                </div>
                 {shareFallback && (
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-muted-foreground inline-flex items-center gap-1">
@@ -811,7 +835,6 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { err
     // Log to console and set state so we can render helpful UI
     // This will surface runtime exceptions that would otherwise cause a blank page
     // User can copy the error text for debugging
-    // eslint-disable-next-line no-console
     console.error("Watch page runtime error:", error, info);
     this.setState({ error, info });
   }

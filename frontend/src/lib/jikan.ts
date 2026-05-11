@@ -68,10 +68,10 @@ const safeList = async (path: string): Promise<Anime[]> => {
 };
 
 export const jikan = {
-  topAiring: () => safeList("/top/anime?filter=airing&limit=12"),
+  topAiring: () => safeList("/top/anime?filter=airing&limit=15"),
   topAll: () => safeList("/top/anime?limit=10"),
-  seasonNow: () => safeList("/seasons/now?limit=18"),
-  upcoming: () => safeList("/seasons/upcoming?limit=12"),
+  seasonNow: () => safeList("/seasons/now?limit=30"),
+  upcoming: () => safeList("/seasons/upcoming?limit=20"),
   newReleases: () => safeList("/anime?order_by=start_date&sort=desc&status=airing&sfw=true&limit=14"),
   search: (q: string) => safeList(`/anime?q=${encodeURIComponent(q)}&limit=500`),
   byGenre: (genreId: number, page = 1) =>

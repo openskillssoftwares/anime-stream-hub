@@ -9,6 +9,7 @@ import {
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -125,9 +126,12 @@ const Profile = () => {
             className="flex flex-wrap items-center gap-6"
           >
             <div className="relative">
-              <div className="w-24 h-24 rounded-2xl bg-gradient-ember grid place-items-center text-4xl font-display font-semibold text-primary-foreground shadow-glow ring-1 ring-primary/40">
-                {initial}
-              </div>
+              <Avatar className="w-24 h-24 rounded-2xl ring-1 ring-primary/40 shadow-glow">
+                <AvatarImage src={p.avatar_url || undefined} alt={p.user_name} className="object-cover" />
+                <AvatarFallback className="rounded-2xl bg-gradient-ember text-4xl font-display font-semibold text-primary-foreground">
+                  {initial}
+                </AvatarFallback>
+              </Avatar>
               {p.is_admin && (
                 <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" /> admin

@@ -31,6 +31,7 @@ export interface CommentOut {
   mal_id: number;
   user_id: string;
   user_name: string;
+  avatar_url?: string | null;
   body: string;
   parent_id?: string | null;
   created_at: string;
@@ -125,8 +126,10 @@ export interface DiscussionRow {
   body: string;
   user_id: string;
   user_name: string;
+  avatar_url?: string | null;
   created_at: string;
   edited_at?: string | null;
+  deleted?: boolean;
   reply_count?: number;
 }
 
@@ -197,6 +200,7 @@ export const api = {
   publicProfile: (userId: string) => req<{
     user_id: string; user_name: string; is_admin: boolean;
     joined_at: string | null;
+    avatar_url?: string | null;
     counts: { comments: number; ratings: number; progress: number };
   }>(`/users/${userId}/profile`),
   publicUserRatings: (userId: string, limit = 50) =>
@@ -210,6 +214,29 @@ export const api = {
   publicUserComments: (userId: string, limit = 30) =>
     req<CommentOut[]>(`/users/${userId}/comments?limit=${limit}`),
 
+  rooms: (limit = 20) => req<{
+    id: string;
+    code: string;
+    title: string;
+    mal_id?: number | null;
+    episode: number;
+    host_id: string;
+    host_name: string;
+    host_avatar_url?: string | null;
+    member_count: number;
+    created_at: string;
+    updated_at?: string | null;
+  }[]>(`/rooms?limit=${limit}`),
+  createRoom: (payload: { title: string; mal_id?: number | null; episode?: number }) =>
+    req<{ id: string; code: string; title: string; mal_id?: number | null; episode: number; host_id: string; host_name: string; host_avatar_url?: string | null; member_count: number; created_at: string; updated_at?: string | null }>(
+      "/rooms",
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  getRoom: (code: string) =>
+    req<{ id: string; code: string; title: string; mal_id?: number | null; episode: number; host_id: string; host_name: string; host_avatar_url?: string | null; member_count: number; created_at: string; updated_at?: string | null }>(`/rooms/${code}`),
+  joinRoom: (code: string) =>
+    req<{ id: string; code: string; title: string; mal_id?: number | null; episode: number; host_id: string; host_name: string; host_avatar_url?: string | null; member_count: number; created_at: string; updated_at?: string | null }>(`/rooms/${code}/join`, { method: "POST" }),
+
   listDiscussions: (params: { scope?: "general" | "anime"; mal_id?: number | string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.scope) q.set("scope", params.scope);
@@ -219,6 +246,7 @@ export const api = {
   },
   createDiscussion: (payload: { scope: "general" | "anime"; mal_id?: number; title?: string; body: string; parent_id?: string | null }) =>
     req<DiscussionRow>(`/discussions`, { method: "POST", body: JSON.stringify(payload) }),
+  deleteDiscussion: (id: string) => req<{ ok: boolean }>(`/discussions/${id}`, { method: "DELETE" }),
 
   listComments: (malId: number | string) => req<CommentOut[]>(`/comments/${malId}`),
   addComment: (malId: number | string, body: string, parent_id?: string | null) =>

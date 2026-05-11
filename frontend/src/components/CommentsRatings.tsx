@@ -4,6 +4,7 @@ import { Star, Send, Loader2, Trash2, Shield, MessageSquare, Edit3, CornerUpLeft
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "react-router-dom";
 import { api, type CommentOut, type RatingStats } from "@/lib/api";
@@ -164,9 +165,12 @@ export const CommentsRatings = ({ malId }: { malId: number | string }) => {
               className="flex items-center gap-2 group"
               data-testid={`comment-author-${comment.user_id}`}
             >
-              <div className="w-7 h-7 rounded-full bg-gradient-ember text-primary-foreground grid place-items-center text-xs font-semibold ring-1 ring-transparent group-hover:ring-primary/60 transition-all">
-                {(comment.user_name || "?").slice(0, 1).toUpperCase()}
-              </div>
+              <Avatar className="w-7 h-7 ring-1 ring-transparent group-hover:ring-primary/60 transition-all">
+                <AvatarImage src={comment.avatar_url || undefined} alt={comment.user_name} />
+                <AvatarFallback className="text-[10px] bg-gradient-ember text-primary-foreground">
+                  {(comment.user_name || "?").slice(0, 1).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
               <span className="text-sm font-medium group-hover:text-primary transition-colors">
                 {comment.user_name || "anon"}
               </span>

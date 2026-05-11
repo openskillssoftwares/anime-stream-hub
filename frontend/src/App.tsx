@@ -14,6 +14,7 @@ import Dashboard from "./pages/Dashboard";
 import Admin from "./pages/Admin";
 import Browse from "./pages/Browse";
 import Profile from "./pages/Profile";
+import Rooms from "./pages/Rooms";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import DMCA from "./pages/DMCA";
@@ -22,7 +23,6 @@ import Contact from "./pages/Contact";
 import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
 import FloatingAIButton from "@/components/FloatingAIButton";
-import SupabaseBanner from "@/components/SupabaseBanner";
 
 
 const queryClient = new QueryClient();
@@ -35,7 +35,6 @@ const App = () => (
       <Analytics />
       <BrowserRouter>
         <AuthProvider>
-          <SupabaseBanner />
           <InteractiveBackground />
           <Routes>
             <Route path="/" element={<Index />} />
@@ -44,6 +43,8 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/profile/:userId" element={<Profile />} />
+            <Route path="/rooms" element={<Rooms />} />
+            <Route path="/rooms/:code" element={<Rooms />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/dmca" element={<DMCA />} />
             <Route path="/donation" element={<Donation />} />

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { Bell, AlertTriangle, Info, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Bell, AlertTriangle, Info, ShieldAlert, CheckCircle2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { api, type NoticeRow } from "@/lib/api";
 
 type Props = {
@@ -28,6 +30,18 @@ export const NotificationCenter = ({ admin = false }: Props) => {
     run();
   }, [admin]);
 
+  const deleteNotice = async (id: string) => {
+    if (!admin) return;
+    if (!confirm("Delete this notice?")) return;
+    try {
+      await api.adminDeleteNotice(id);
+      setItems((current) => current.filter((item) => item.id !== id));
+      toast.success("Notice deleted");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete notice");
+    }
+  };
+
   return (
     <section className="rounded-xl bg-card/60 ring-1 ring-border/60 p-4">
       <h3 className="font-semibold mb-3 flex items-center gap-2"><Bell className="w-4 h-4" /> Notification center</h3>
@@ -35,9 +49,16 @@ export const NotificationCenter = ({ admin = false }: Props) => {
         {items.length === 0 && <p className="text-sm text-muted-foreground">No important notices.</p>}
         {items.map((n) => (
           <div key={n.id} className="rounded-lg bg-secondary/40 px-3 py-2">
-            <div className="flex items-center gap-2 mb-1">
-              {iconFor(n.level)}
-              <p className="text-sm font-medium">{n.title}</p>
+            <div className="flex items-start justify-between gap-3 mb-1">
+              <div className="flex items-center gap-2 min-w-0">
+                {iconFor(n.level)}
+                <p className="text-sm font-medium truncate">{n.title}</p>
+              </div>
+              {admin && (
+                <Button type="button" variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => deleteNotice(n.id)}>
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">{n.body}</p>
           </div>

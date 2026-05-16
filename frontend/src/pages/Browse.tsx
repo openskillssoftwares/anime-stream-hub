@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AnimeCard } from "@/components/AnimeCard";
-import { jikan, rankSearchResults, type Anime } from "@/lib/jikan";
+import { jikan, rankSearchResults, type Anime, type BrowseResult } from "@/lib/jikan";
 
 const TYPE_OPTIONS = ["", "tv", "movie", "ova", "ona", "special"] as const;
 const STATUS_OPTIONS = ["", "airing", "complete", "upcoming"] as const;
-const EXCLUDE_GENRES = [12, 49]; // Hentai (12), Erotica (49)
+const EXCLUDE_GENRES = [12, 49, 9]; // Hentai (12), Erotica (49), Ecchi (9)
 const ORDER_OPTIONS = [
   { value: "score", label: "Top score" },
   { value: "popularity", label: "Most popular" },
@@ -75,7 +75,7 @@ const Browse = () => {
 
   const results = useQuery({
     queryKey: ["browse", q, type, status, order, genres.join(","), page],
-    queryFn: (): Promise<Anime[]> => jikan.byFilters({
+    queryFn: (): Promise<BrowseResult> => jikan.byFilters({
       q: q || undefined,
       type: type || undefined,
       status: status || undefined,
@@ -88,7 +88,10 @@ const Browse = () => {
     placeholderData: (prev) => prev,
   });
 
-  const orderedResults: Anime[] = results.data && q ? rankSearchResults(results.data, q) : (results.data || []);
+  const orderedResults: Anime[] = results.data?.data && q
+    ? rankSearchResults(results.data.data, q)
+    : (results.data?.data || []);
+  const hasNextPage = results.data?.pagination?.has_next_page ?? (orderedResults.length >= 100);
 
   const toggleGenre = (id: number) => {
     setGenres((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
@@ -192,7 +195,7 @@ const Browse = () => {
           <Button variant="outline" size="sm" disabled={page <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}>← Prev</Button>
           <span className="text-sm text-muted-foreground">Page {page}</span>
-            <Button variant="outline" size="sm" disabled={orderedResults.length < 100}
+            <Button variant="outline" size="sm" disabled={!hasNextPage}
                   onClick={() => setPage((p) => p + 1)}>Next →</Button>
         </div>
       </main>

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   ChevronLeft, Star, Calendar, Tv, AlertTriangle, Ban,
-  Languages, RefreshCcw, Server, ExternalLink, SkipForward, MessageSquare, Share2,
+  Languages, RefreshCcw, Server, ExternalLink, SkipForward, MessageSquare,
 } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,6 @@ const Watch = () => {
   const [iframeError, setIframeError] = useState(false);
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
-  const [shareFallback, setShareFallback] = useState(false);
   const [fallbackNoticeShown, setFallbackNoticeShown] = useState(false);
   const ws = useRef<WebSocket | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -215,6 +214,7 @@ const Watch = () => {
 
     return [] as AnimeEpisode[];
   })();
+
   const stream = useQuery<StreamOut>({
     queryKey: ["stream", id, episode, lang, source, version, anikotoId],
     queryFn: async (): Promise<StreamOut> => {
@@ -440,58 +440,15 @@ const Watch = () => {
   const pageUrl = typeof window !== "undefined" ? window.location.href : "";
   const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
 
+  // Inject ShareThis script once on mount
   useEffect(() => {
-    if (!anime.data || typeof window === "undefined") return;
-
-    const reloadShareThis = () => {
-      try {
-        const globalWindow = window as Window & {
-          __sharethis__?: { load?: (widgetId: string) => void };
-          sharethis?: { load?: (widgetId: string) => void };
-          stLight?: { parse?: (target: Element | null) => void };
-        };
-
-        if (globalWindow.__sharethis__?.load) {
-          globalWindow.__sharethis__.load("inline-share-buttons");
-        } else if (globalWindow.sharethis?.load) {
-          globalWindow.sharethis.load("inline-share-buttons");
-        } else if (globalWindow.stLight?.parse) {
-          globalWindow.stLight.parse(document.querySelector(".sharethis-inline-share-buttons"));
-        }
-      } catch (e) {
-        // Silent fail
-      }
-    };
-
-    let attempts = 0;
-    let cancelled = false;
-
-    const poll = () => {
-      if (cancelled) return;
-      reloadShareThis();
-
-      const host = document.querySelector(".sharethis-inline-share-buttons");
-      const hasButtons = !!host && host.childElementCount > 0;
-      if (hasButtons) {
-        setShareFallback(false);
-        return;
-      }
-
-      attempts += 1;
-      if (attempts < 8) {
-        window.setTimeout(poll, 250);
-      } else {
-        setShareFallback(true);
-      }
-    };
-
-    const timer = window.setTimeout(poll, 100);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [anime.data, pageUrl, shareTitle]);
+    if (typeof window === "undefined") return;
+    if (document.querySelector('script[src*="sharethis.js"]')) return; // already injected
+    const script = document.createElement("script");
+    script.src = "https://platform-api.sharethis.com/js/sharethis.js#property=64f217497373fd001949ddd0&product=inline-share-buttons";
+    script.async = true;
+    document.head.appendChild(script);
+  }, []);
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);

@@ -46,7 +46,7 @@ const Features = () => {
           transition={{ duration: 0.5 }}
           className="text-center mb-12"
         >
-          <h1 className="text-4xl md:text-6xl font-bold mb-4">Welcome to Anime Stream Hub</h1>
+          <h1 className="text-4xl md:text-6xl font-bold mb-4">Welcome to Hey Anime!</h1>
           <p className="text-lg md:text-xl text-muted-foreground">
             Your ultimate destination for anime streaming.
           </p>

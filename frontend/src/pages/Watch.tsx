@@ -19,16 +19,25 @@ import type { AnimeEpisode } from "@/lib/jikan";
 
 type Lang = "sub" | "dub";
 type Source = "mal" | "anikoto";
+type Version = "default" | "uncensored";
+
+interface PlayerEvent {
+  type: "play" | "pause" | "seek" | "change_episode";
+  currentTime?: number;
+  episode?: number;
+}
 
 const Watch = () => {
   const { id } = useParams();
   const malId = Number(id);
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const roomCode = (searchParams.get("room") || "").toUpperCase();
 
   const [episode, setEpisode] = useState(() => Number(searchParams.get("ep") || 1));
   const [lang, setLang] = useState<Lang>(() => (searchParams.get("lang") as Lang) || "sub");
   const [source, setSource] = useState<Source>(() => (searchParams.get("source") as Source) || "mal");
+  const [version, setVersion] = useState<Version>(() => (searchParams.get("v") as Version) || "default");
   const [anikotoId, setAnikotoId] = useState<number | undefined>(() => {
     const a = searchParams.get("anikoto");
     return a ? Number(a) : undefined;
@@ -37,16 +46,77 @@ const Watch = () => {
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
   const [shareFallback, setShareFallback] = useState(false);
+  const [fallbackNoticeShown, setFallbackNoticeShown] = useState(false);
+  const ws = useRef<WebSocket | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const suppressOutgoingUntil = useRef<number>(0);
+
+  // WebSocket connection for rooms
+  useEffect(() => {
+    if (!roomCode) return;
+
+    const wsUrl = ((import.meta.env.VITE_BACKEND_URL as string) || window.location.origin)
+      .replace("http", "ws") + `/ws/rooms/${roomCode}`;
+
+    ws.current = new WebSocket(wsUrl);
+
+    ws.current.onopen = () => {
+      console.log("WebSocket connected");
+    };
+
+    ws.current.onmessage = (event) => {
+      const message: PlayerEvent = JSON.parse(event.data);
+      const player = iframeRef.current;
+      if (!player) return;
+
+      suppressOutgoingUntil.current = Date.now() + 800;
+
+      switch (message.type) {
+        case "play":
+          player.contentWindow?.postMessage({ event: "play" }, "*");
+          break;
+        case "pause":
+          player.contentWindow?.postMessage({ event: "pause" }, "*");
+          break;
+        case "seek":
+          if (message.currentTime) {
+            player.contentWindow?.postMessage({ event: "seek", time: message.currentTime }, "*");
+          }
+          break;
+        case "change_episode":
+          if (message.episode) {
+            setEpisode(message.episode);
+          }
+          break;
+      }
+    };
+
+    ws.current.onclose = () => {
+      console.log("WebSocket disconnected");
+    };
+
+    return () => {
+      ws.current?.close();
+    };
+  }, [roomCode]);
+
+  const sendPlayerEvent = (event: PlayerEvent) => {
+    if (ws.current?.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify(event));
+    }
+  };
 
   // keep URL in sync (so ep/lang are shareable)
   useEffect(() => {
     const q = new URLSearchParams();
     q.set("ep", String(episode));
     q.set("lang", lang);
+    if (roomCode) q.set("room", roomCode);
     if (source !== "mal") q.set("source", source);
+    if (version !== "default") q.set("v", version);
     if (anikotoId) q.set("anikoto", String(anikotoId));
     setSearchParams(q, { replace: true });
-  }, [episode, lang, source, anikotoId, setSearchParams]);
+  }, [episode, lang, source, version, anikotoId, roomCode, setSearchParams]);
 
   const anime = useQuery({ queryKey: ["anime", id], queryFn: () => jikan.byId(id!), enabled: !!id });
   const eps = useQuery({ queryKey: ["eps", id], queryFn: () => jikan.episodes(id!), enabled: !!id });
@@ -54,6 +124,12 @@ const Watch = () => {
     queryKey: ["blocked", id],
     queryFn: () => api.isAnimeBlocked(id!),
     enabled: !!id,
+  });
+  const streamOptions = useQuery({
+    queryKey: ["stream-options", id],
+    queryFn: () => api.streamOptions(id!, anime.data?.title_english || anime.data?.title || undefined),
+    enabled: !!id && !!anime.data,
+    staleTime: 1000 * 60 * 10,
   });
 
   useEffect(() => {
@@ -84,7 +160,7 @@ const Watch = () => {
       });
   }, [user, malId, searchParams, eps.data, anime.data?.episodes]);
 
-  useEffect(() => { setIframeError(false); setIframeLoading(true); }, [episode, id, lang, source]);
+  useEffect(() => { setIframeError(false); setIframeLoading(true); }, [episode, id, lang, source, version]);
 
   const isUpcoming = useMemo(() => {
     const status = (anime.data?.status || "").toString().toLowerCase();
@@ -142,12 +218,54 @@ const Watch = () => {
     return [] as AnimeEpisode[];
   })();
 
-  const stream = useQuery({
-    queryKey: ["stream", id, episode, lang, source, anikotoId],
-    queryFn: () => api.getStream(malId, episode, lang, source, anikotoId),
-    enabled: !!id && !blocked.data?.blocked && !isUpcoming && episodeList.length > 0 && (source !== "anikoto" || !!anikotoId),
-    retry: 0,
+  const stream = useQuery<StreamOut>({
+    queryKey: ["stream", id, episode, lang, source, version, anikotoId],
+    queryFn: async (): Promise<StreamOut> => {
+      const title = anime.data?.title_english || anime.data?.title || undefined;
+      const result = await api.getStream(malId, episode, lang, source, anikotoId, title, version);
+      if (!result.embed_url) {
+        throw new Error("Stream URL not found in response");
+      }
+      return result;
+    },
+    enabled: !!anime.data && episode > 0,
+    retry: 2,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    refetchOnWindowFocus: false,
   });
+
+  // When user explicitly changes source, reset the auto-fallback flag
+  useEffect(() => {
+    setAutoFallbackTried(false);
+  }, [source]);
+
+  useEffect(() => {
+    if (stream.error) {
+      setIframeError(true);
+    }
+  }, [stream.error]);
+
+  useEffect(() => {
+    if (!stream.data || fallbackNoticeShown) return;
+    if (stream.data.mal_id !== malId) {
+      setFallbackNoticeShown(true);
+      toast.info("Switched to a compatible stream match for this title.");
+    }
+  }, [stream.data, malId, fallbackNoticeShown]);
+
+  useEffect(() => {
+    if (lang === "dub" && streamOptions.data && !streamOptions.data.has_dub) {
+      setLang("sub");
+      toast.info("Dub is not available for this title. Switched to sub.");
+    }
+  }, [lang, streamOptions.data]);
+
+  useEffect(() => {
+    if (version === "uncensored" && streamOptions.data && !streamOptions.data.has_uncensored) {
+      setVersion("default");
+      toast.info("Uncensored version is not available for this title.");
+    }
+  }, [version, streamOptions.data]);
 
   const nextAiringEpisode = useMemo(() => {
     const allEpisodes = Array.isArray(eps.data) ? (eps.data as AnimeEpisode[]) : [];
@@ -427,6 +545,19 @@ const Watch = () => {
         }
       }
 
+      if (roomCode && Date.now() >= suppressOutgoingUntil.current) {
+        if (d.event === "play") {
+          sendPlayerEvent({ type: "play" });
+        } else if (d.event === "pause") {
+          sendPlayerEvent({ type: "pause" });
+        } else if (d.event === "seek" || d.event === "seeked") {
+          const current = Number(d.currentTime ?? d.time ?? 0);
+          if (Number.isFinite(current)) {
+            sendPlayerEvent({ type: "seek", currentTime: current });
+          }
+        }
+      }
+
       // complete → autoplay next
       if (d.event === "complete") {
         if (user) {
@@ -440,12 +571,15 @@ const Watch = () => {
         if (nextEpisodeNumber) {
           toast.success(`Up next: episode ${nextEpisodeNumber}`);
           setEpisode(nextEpisodeNumber);
+          if (roomCode) {
+            sendPlayerEvent({ type: "change_episode", episode: nextEpisodeNumber });
+          }
         }
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [user, malId, episode, nextEpisodeNumber, anime.data]);
+  }, [user, malId, episode, nextEpisodeNumber, anime.data, roomCode]);
 
   const playerSrc = stream.data?.embed_url;
   const streamErrored = !!stream.error;
@@ -470,10 +604,113 @@ const Watch = () => {
 
       <main className="container -mt-[45vh] relative z-10 pb-24">
         <Button asChild variant="ghost" size="sm" className="mb-6 text-muted-foreground">
-          <Link to="/"><ChevronLeft className="w-4 h-4 mr-1" /> Back</Link>
+          <Link to={roomCode ? `/rooms/${roomCode}` : "/"}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Link>
         </Button>
 
-        <div className="grid lg:grid-cols-[1fr_320px] gap-8">
+        {/* Player */}
+        <div className="aspect-video w-full bg-black rounded-lg overflow-hidden shadow-2xl mb-8 relative">
+          {showFallback ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
+              <AlertTriangle className="w-10 h-10 text-primary" />
+              <p className="font-display text-2xl">Stream unavailable</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                This episode is not currently available on the streaming provider.
+              </p>
+              <div className="mt-4 flex flex-col gap-2 text-xs">
+                <button
+                  onClick={() => stream.refetch()}
+                  className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  Try Again
+                </button>
+                {source === "mal" && (
+                  <button
+                    onClick={() => {
+                      toast.loading("Checking Server 2...", { id: "fallback-check" });
+                      api.anikotoResolve(malId).then((res) => {
+                        if (res.anikoto_id) {
+                          setAnikotoId(res.anikoto_id);
+                          setSource("anikoto");
+                          toast.success(
+                            `Found on Server 2!`,
+                            { id: "fallback-check" }
+                          );
+                        } else {
+                          toast.error(
+                            res.reason || "Couldn't find a match on Server 2 for this title.",
+                            { id: "fallback-check" }
+                          );
+                        }
+                      }).catch(() => {
+                        toast.error("Server 2 check failed", { id: "fallback-check" });
+                      });
+                    }}
+                    className="px-4 py-2 rounded-md bg-secondary hover:bg-secondary/80"
+                  >
+                    Try Server 2
+                  </button>
+                )}
+              </div>
+              <a
+                href="https://megaplay.buzz/api#mal-anilist-coverage"
+                target="_blank" rel="noreferrer"
+                className="text-xs text-primary hover:underline mt-4 inline-flex items-center gap-1"
+              >
+                Check coverage → <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          ) : isUpcoming ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3 bg-gradient-to-b from-background/20 to-background/80">
+              <AlertTriangle className="w-10 h-10 text-primary" />
+              <p className="font-display text-2xl">Coming soon</p>
+              <p className="text-sm text-muted-foreground max-w-md">
+                This title has not aired yet. We'll show the player when it starts airing.
+              </p>
+            </div>
+          ) : !playerSrc ? (
+            <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
+              Loading player…
+            </div>
+          ) : (
+            <>
+              <iframe
+                ref={iframeRef}
+                src={playerSrc}
+                allow="autoplay; fullscreen"
+                className="w-full h-full"
+                onLoad={() => {
+                  setIframeLoading(false);
+                  if (searchParams.get("autoplay") === "1") {
+                    window.setTimeout(() => {
+                      iframeRef.current?.contentWindow?.postMessage({ event: "play" }, "*");
+                    }, 250);
+                  }
+                }}
+                onError={() => setIframeError(true)}
+              />
+              {iframeLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-28 h-28">
+                      <video
+                        src="/loading.webm"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                    <p className="text-sm text-muted-foreground">Loading player...</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Controls & Info */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
 
             {/* Player toolbar */}
@@ -482,8 +719,27 @@ const Watch = () => {
                 label={<><Languages className="w-3.5 h-3.5" /> Lang</>}
                 value={lang}
                 onChange={(v) => setLang(v as Lang)}
-                options={[{ value: "sub", label: "SUB" }, { value: "dub", label: "DUB" }]}
+                options={[
+                  { value: "sub", label: "SUB" },
+                  {
+                    value: "dub",
+                    label: "DUB",
+                    disabled: !!streamOptions.data && !streamOptions.data.has_dub,
+                    title: streamOptions.data && !streamOptions.data.has_dub ? "Dub unavailable for this title" : undefined,
+                  },
+                ]}
               />
+              {streamOptions.data?.has_uncensored ? (
+                <SegmentedToggle
+                  label={<><Tv className="w-3.5 h-3.5" /> Version</>}
+                  value={version}
+                  onChange={(v) => setVersion(v as Version)}
+                  options={[
+                    { value: "default", label: "Default" },
+                    { value: "uncensored", label: "Uncensored" },
+                  ]}
+                />
+              ) : null}
               <SegmentedToggle
                 label={<><Server className="w-3.5 h-3.5" /> Source</>}
                 value={source}
@@ -589,9 +845,15 @@ const Watch = () => {
                             if (res.anikoto_id) {
                               setAnikotoId(res.anikoto_id);
                               setSource("anikoto");
-                              toast.success(`Found on Server 2!`, { id: "fallback-check" });
+                              toast.success(
+                                `Found on Server 2!`,
+                                { id: "fallback-check" }
+                              );
                             } else {
-                              toast.error("Not available on Server 2 either", { id: "fallback-check" });
+                              toast.error(
+                                "Not available on Server 2 either",
+                                { id: "fallback-check" }
+                              );
                             }
                           }).catch(() => {
                             toast.error("Server 2 check failed", { id: "fallback-check" });
@@ -626,6 +888,7 @@ const Watch = () => {
               ) : (
                 <>
                   <iframe
+                    ref={iframeRef}
                     key={playerSrc}
                     src={playerSrc}
                     title="Player"
@@ -634,7 +897,14 @@ const Watch = () => {
                     referrerPolicy="origin"
                     className="absolute inset-0 w-full h-full"
                     onError={() => setIframeError(true)}
-                    onLoad={() => setIframeLoading(false)}
+                    onLoad={() => {
+                      setIframeLoading(false);
+                      if (searchParams.get("autoplay") === "1") {
+                        window.setTimeout(() => {
+                          iframeRef.current?.contentWindow?.postMessage({ event: "play" }, "*");
+                        }, 250);
+                      }
+                    }}
                   />
                   {iframeLoading && (
                     <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">

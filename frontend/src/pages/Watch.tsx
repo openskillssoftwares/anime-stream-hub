@@ -148,7 +148,6 @@ const Watch = () => {
       .then((progress) => {
         const savedProgress = progress.find((p) => p.mal_id === malId);
         if (savedProgress && savedProgress.episode > 0) {
-          // Ensure saved episode is within valid range
           const episodeNumbers = (eps.data as AnimeEpisode[]).map((e) => e.episodeNumber).filter(Boolean);
           if (episodeNumbers.includes(savedProgress.episode) || savedProgress.episode <= (anime.data?.episodes || 999)) {
             setEpisode(savedProgress.episode);
@@ -193,7 +192,6 @@ const Watch = () => {
         const d = new Date(ep.aired);
         return isNaN(d.getTime()) ? true : d.getTime() <= Date.now();
       });
-      // If we filtered out all episodes, fall back to synthesis
       if (filtered.length > 0) return filtered;
     }
 
@@ -217,7 +215,6 @@ const Watch = () => {
 
     return [] as AnimeEpisode[];
   })();
-
   const stream = useQuery<StreamOut>({
     queryKey: ["stream", id, episode, lang, source, version, anikotoId],
     queryFn: async (): Promise<StreamOut> => {
@@ -249,7 +246,7 @@ const Watch = () => {
     if (!stream.data || fallbackNoticeShown) return;
     if (stream.data.mal_id !== malId) {
       setFallbackNoticeShown(true);
-      toast.info("Uncensored Version is not available for this anime. Switching to Original Version.");
+      toast.info("Switched to a compatible stream match for this title.");
     }
   }, [stream.data, malId, fallbackNoticeShown]);
 
@@ -328,13 +325,8 @@ const Watch = () => {
     if (passedToday) daysAhead = 7;
 
     const targetSourcePseudoUtc = Date.UTC(
-      nowSource.getUTCFullYear(),
-      nowSource.getUTCMonth(),
-      nowSource.getUTCDate() + daysAhead,
-      hh,
-      mm,
-      0,
-      0,
+      nowSource.getUTCFullYear(), nowSource.getUTCMonth(),
+      nowSource.getUTCDate() + daysAhead, hh, mm, 0, 0,
     );
     const targetUtc = new Date(targetSourcePseudoUtc - sourceOffsetMinutes * 60_000);
 
@@ -384,7 +376,6 @@ const Watch = () => {
         };
       }
     }
-
     return null;
   }, [isAiring, nextAiringEpisode, nextAiringLabel, nextBroadcastGmtLabel, episodeList.length]);
 
@@ -449,7 +440,6 @@ const Watch = () => {
   const pageUrl = typeof window !== "undefined" ? window.location.href : "";
   const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
 
-  // Trigger ShareThis parsing when anime changes and fall back to native share links if blocked.
   useEffect(() => {
     if (!anime.data || typeof window === "undefined") return;
 
@@ -461,7 +451,6 @@ const Watch = () => {
           stLight?: { parse?: (target: Element | null) => void };
         };
 
-        // Try multiple ways to reload ShareThis
         if (globalWindow.__sharethis__?.load) {
           globalWindow.__sharethis__.load("inline-share-buttons");
         } else if (globalWindow.sharethis?.load) {
@@ -583,7 +572,6 @@ const Watch = () => {
 
   const playerSrc = stream.data?.embed_url;
   const streamErrored = !!stream.error;
-
   const showFallback = !blocked.data?.blocked && (iframeError || streamErrored);
 
   return (
@@ -609,11 +597,126 @@ const Watch = () => {
 
         {/* Controls & Info */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="md:col-span-2">
+          <motion.div
+            className="md:col-span-2"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            {/* Player */}
+            <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-cinematic ring-1 ring-border/60">
+              {anime.isLoading || eps.isLoading || blocked.isLoading ? (
+                <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
+                  Loading player…
+                </div>
+              ) : blocked.data?.blocked ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
+                  <Ban className="w-10 h-10 text-destructive" />
+                  <p className="font-display text-2xl">This title is unavailable</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    {blocked.data.reason || "Removed by the moderation team."}
+                  </p>
+                </div>
+              ) : showFallback ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
+                  <AlertTriangle className="w-10 h-10 text-primary" />
+                  <p className="font-display text-2xl">Stream unavailable</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    This episode is not currently available on the streaming provider.
+                  </p>
+                  <div className="mt-4 flex flex-col gap-2 text-xs">
+                    <button
+                      onClick={() => stream.refetch()}
+                      className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+                    >
+                      Try Again
+                    </button>
+                    {source === "mal" && (
+                      <button
+                        onClick={() => {
+                          toast.loading("Checking Server 2...", { id: "fallback-check" });
+                          api.anikotoResolve(malId).then((res) => {
+                            if (res.anikoto_id) {
+                              setAnikotoId(res.anikoto_id);
+                              setSource("anikoto");
+                              toast.success(`Found on Server 2!`, { id: "fallback-check" });
+                            } else {
+                              toast.error("Not available on Server 2 either", { id: "fallback-check" });
+                            }
+                          }).catch(() => {
+                            toast.error("Server 2 check failed", { id: "fallback-check" });
+                          });
+                        }}
+                        className="px-4 py-2 rounded-md bg-secondary hover:bg-secondary/80"
+                      >
+                        Try Server 2
+                      </button>
+                    )}
+                  </div>
+                  <a
+                    href="https://megaplay.buzz/api#mal-anilist-coverage"
+                    target="_blank" rel="noreferrer"
+                    className="text-xs text-primary hover:underline mt-4 inline-flex items-center gap-1"
+                  >
+                    Check coverage → <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              ) : isUpcoming ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3 bg-gradient-to-b from-background/20 to-background/80">
+                  <AlertTriangle className="w-10 h-10 text-primary" />
+                  <p className="font-display text-2xl">Coming soon</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    This title has not aired yet. We'll show the player when it starts airing.
+                  </p>
+                </div>
+              ) : !playerSrc ? (
+                <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
+                  Loading player…
+                </div>
+              ) : (
+                <>
+                  <iframe
+                    ref={iframeRef}
+                    key={playerSrc}
+                    src={playerSrc}
+                    title="Player"
+                    allowFullScreen
+                    allow="autoplay; fullscreen; picture-in-picture"
+                    referrerPolicy="origin"
+                    className="absolute inset-0 w-full h-full"
+                    onError={() => setIframeError(true)}
+                    onLoad={() => {
+                      setIframeLoading(false);
+                      if (searchParams.get("autoplay") === "1") {
+                        window.setTimeout(() => {
+                          iframeRef.current?.contentWindow?.postMessage({ event: "play" }, "*");
+                        }, 250);
+                      }
+                    }}
+                  />
+                  {iframeLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="w-28 h-28">
+                          <video
+                            src="/loading.webm"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <p className="text-sm text-muted-foreground">Loading player...</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
 
-
-            {/* Player toolbar */}
-            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+            {/* Player toolbar — now below the player */}
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
               <SegmentedToggle
                 label={<><Languages className="w-3.5 h-3.5" /> Lang</>}
                 value={lang}
@@ -705,124 +808,6 @@ const Watch = () => {
                   <ExternalLink className="w-3 h-3" />
                   via {stream.data.source}
                 </span>
-              )}
-            </div>
-
-            {/* Player */}
-            <div className="relative aspect-video bg-black rounded-xl overflow-hidden shadow-cinematic ring-1 ring-border/60">
-              {anime.isLoading || eps.isLoading || blocked.isLoading ? (
-                <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
-                  Loading player…
-                </div>
-              ) : blocked.data?.blocked ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
-                  <Ban className="w-10 h-10 text-destructive" />
-                  <p className="font-display text-2xl">This title is unavailable</p>
-                  <p className="text-sm text-muted-foreground max-w-md">
-                    {blocked.data.reason || "Removed by the moderation team."}
-                  </p>
-                </div>
-              ) : showFallback ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
-                  <AlertTriangle className="w-10 h-10 text-primary" />
-                  <p className="font-display text-2xl">Stream unavailable</p>
-                  <p className="text-sm text-muted-foreground max-w-md">
-                    This episode is not currently available on the streaming provider.
-                  </p>
-                  <div className="mt-4 flex flex-col gap-2 text-xs">
-                    <button
-                      onClick={() => stream.refetch()}
-                      className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
-                    >
-                      Try Again
-                    </button>
-                    {source === "mal" && (
-                      <button
-                        onClick={() => {
-                          toast.loading("Checking Server 2...", { id: "fallback-check" });
-                          api.anikotoResolve(malId).then((res) => {
-                            if (res.anikoto_id) {
-                              setAnikotoId(res.anikoto_id);
-                              setSource("anikoto");
-                              toast.success(
-                                `Found on Server 2!`,
-                                { id: "fallback-check" }
-                              );
-                            } else {
-                              toast.error(
-                                "Not available on Server 2 either",
-                                { id: "fallback-check" }
-                              );
-                            }
-                          }).catch(() => {
-                            toast.error("Server 2 check failed", { id: "fallback-check" });
-                          });
-                        }}
-                        className="px-4 py-2 rounded-md bg-secondary hover:bg-secondary/80"
-                      >
-                        Try Server 2
-                      </button>
-                    )}
-                  </div>
-                  <a
-                    href="https://megaplay.buzz/api#mal-anilist-coverage"
-                    target="_blank" rel="noreferrer"
-                    className="text-xs text-primary hover:underline mt-4 inline-flex items-center gap-1"
-                  >
-                    Check coverage → <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              ) : isUpcoming ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3 bg-gradient-to-b from-background/20 to-background/80">
-                  <AlertTriangle className="w-10 h-10 text-primary" />
-                  <p className="font-display text-2xl">Coming soon</p>
-                  <p className="text-sm text-muted-foreground max-w-md">
-                    This title has not aired yet. We'll show the player when it starts airing.
-                  </p>
-                </div>
-              ) : !playerSrc ? (
-                <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
-                  Loading player…
-                </div>
-              ) : (
-                <>
-                  <iframe
-                    ref={iframeRef}
-                    key={playerSrc}
-                    src={playerSrc}
-                    title="Player"
-                    allowFullScreen
-                    allow="autoplay; fullscreen; picture-in-picture"
-                    referrerPolicy="origin"
-                    className="absolute inset-0 w-full h-full"
-                    onError={() => setIframeError(true)}
-                    onLoad={() => {
-                      setIframeLoading(false);
-                      if (searchParams.get("autoplay") === "1") {
-                        window.setTimeout(() => {
-                          iframeRef.current?.contentWindow?.postMessage({ event: "play" }, "*");
-                        }, 250);
-                      }
-                    }}
-                  />
-                  {iframeLoading && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="w-28 h-28">
-                          <video
-                            src="/loading.webm"
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
-                        <p className="text-sm text-muted-foreground">Loading player...</p>
-                      </div>
-                    </div>
-                  )}
-                </>
               )}
             </div>
 

@@ -444,14 +444,22 @@ const Watch = () => {
   // Re-trigger rendering when the component mounts (SPA navigation means
   // the widget div appears after the script has already initialised).
   useEffect(() => {
-    try {
-      const st = (window as any).__sharethis__;
-      if (st?.initialize) st.initialize();
-      else if ((window as any).sharethis?.initialize) (window as any).sharethis.initialize();
-    } catch {
-      // Silent fail — buttons will still render on hard load
-    }
-  }, []);
+    const trigger = () => {
+      try {
+        const win = window as any;
+        if (win.__sharethis__?.load) {
+          win.__sharethis__.load("inline-share-buttons");
+        } else if (win.sharethis?.load) {
+          win.sharethis.load("inline-share-buttons");
+        }
+      } catch {
+        // Silent fail
+      }
+    };
+    // Small delay to ensure the widget div is in the DOM
+    const t = window.setTimeout(trigger, 300);
+    return () => window.clearTimeout(t);
+  }, [pageUrl]);
 
   // Player postMessage events: progress + auto-next + error fallback
   const lastSavedAt = useRef<number>(0);

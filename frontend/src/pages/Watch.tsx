@@ -609,7 +609,8 @@ const Watch = () => {
 
         {/* Controls & Info */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="md:col-span-2">
+
 
             {/* Player toolbar */}
             <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">

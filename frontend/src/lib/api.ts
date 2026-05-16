@@ -74,6 +74,13 @@ export interface StreamOut {
   episode_embed_id?: string | null;
   title?: string | null;
 }
+
+export interface StreamOptionsOut {
+  mal_id: number;
+  has_dub: boolean;
+  has_uncensored: boolean;
+  uncensored_mal_id?: number | null;
+}
 export interface ReportOut {
   id: string;
   mal_id: number;
@@ -165,15 +172,25 @@ export const api = {
 
   // streaming
   getStream: (mal_id: number | string, ep: number, lang: "sub" | "dub" = "sub",
-              source: "mal" | "anikoto" = "mal", anikoto_id?: number) => {
+              source: "mal" | "anikoto" = "mal", anikoto_id?: number,
+              title?: string, version: "default" | "uncensored" = "default") => {
     const q = new URLSearchParams({
       mal_id: String(mal_id),
       ep: String(ep),
       lang,
       source,
       ...(anikoto_id ? { anikoto_id: String(anikoto_id) } : {}),
+      ...(title ? { title } : {}),
+      ...(version !== "default" ? { version } : {}),
     });
     return req<StreamOut>(`/stream?${q.toString()}`);
+  },
+  streamOptions: (mal_id: number | string, title?: string) => {
+    const q = new URLSearchParams({
+      mal_id: String(mal_id),
+      ...(title ? { title } : {}),
+    });
+    return req<StreamOptionsOut>(`/stream/options?${q.toString()}`);
   },
   anikotoRecent: (page = 1, per_page = 20) =>
     req<{ ok?: boolean; data?: unknown[]; pagination?: unknown }>(

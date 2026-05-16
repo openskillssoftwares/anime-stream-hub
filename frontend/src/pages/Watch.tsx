@@ -824,7 +824,7 @@ const Watch = () => {
 
             {/* ShareThis Buttons */}
             {anime.data && (
-              <div className="mt-6">
+              <div className="mt-4">
                 <div
                   className="sharethis-inline-share-buttons"
                   data-url={pageUrl}
@@ -840,42 +840,6 @@ const Watch = () => {
                     Create room
                   </Link>
                 </div>
-                {shareFallback && (
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="text-muted-foreground inline-flex items-center gap-1">
-                      <Share2 className="w-3.5 h-3.5" /> Share:
-                    </span>
-                    <a
-                      className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
-                      href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(pageUrl)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      X
-                    </a>
-                    <a
-                      className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
-                      href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Facebook
-                    </a>
-                    <button
-                      type="button"
-                      className="rounded-md bg-secondary/60 px-2.5 py-1 hover:bg-secondary"
-                      onClick={() => {
-                        navigator.clipboard.writeText(pageUrl).then(() => {
-                          toast.success("Link copied");
-                        }).catch(() => {
-                          toast.error("Could not copy link");
-                        });
-                      }}
-                    >
-                      Copy link
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 

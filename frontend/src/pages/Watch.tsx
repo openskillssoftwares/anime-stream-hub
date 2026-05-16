@@ -246,7 +246,7 @@ const Watch = () => {
     if (!stream.data || fallbackNoticeShown) return;
     if (stream.data.mal_id !== malId) {
       setFallbackNoticeShown(true);
-      toast.info("Switched to a compatible stream match for this title.");
+      toast.info("Uncensored is not available. Switching to default.");
     }
   }, [stream.data, malId, fallbackNoticeShown]);
 

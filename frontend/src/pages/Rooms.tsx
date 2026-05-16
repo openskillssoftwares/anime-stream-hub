@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -15,6 +15,13 @@ import { useAuth } from "@/hooks/useAuth";
 
 const roomSeedAvatar = (seed: string) => `https://api.dicebear.com/9.x/notionists-neutral/svg?seed=${encodeURIComponent(seed)}`;
 
+type RoomSyncMessage = {
+  type: "start_watch";
+  mal_id: number;
+  episode: number;
+  sender?: string;
+};
+
 const Rooms = () => {
   const { code } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -27,12 +34,39 @@ const Rooms = () => {
   const [malId, setMalId] = useState(searchParams.get("mal_id") || "");
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
+  const [sendingStart, setSendingStart] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (code) {
       setRoomCode(code.toUpperCase());
     }
   }, [code]);
+
+  useEffect(() => {
+    if (!code) return;
+    const wsUrl = ((import.meta.env.VITE_BACKEND_URL as string) || window.location.origin)
+      .replace("http", "ws") + `/ws/rooms/${code.toUpperCase()}`;
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data) as RoomSyncMessage;
+        if (msg.type !== "start_watch") return;
+        if (!msg.mal_id || !msg.episode) return;
+        navigate(`/watch/${msg.mal_id}?ep=${msg.episode}&room=${code.toUpperCase()}&autoplay=1`);
+      } catch {
+        // Ignore malformed socket messages.
+      }
+    };
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [code, navigate]);
 
   const rooms = useQuery({
     queryKey: ["rooms"],
@@ -105,6 +139,31 @@ const Rooms = () => {
   };
 
   const joinButtonLabel = joining ? "Joining..." : "Join room";
+
+  const startWatchForEveryone = () => {
+    if (!code || !room.data) return;
+    const selectedMal = parsedMalId ?? room.data.mal_id ?? null;
+    const selectedEpisode = parsedEpisode;
+    if (!selectedMal) {
+      toast.error("Set a valid MAL ID first");
+      return;
+    }
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      toast.error("Room sync channel is not ready");
+      return;
+    }
+
+    setSendingStart(true);
+    const payload: RoomSyncMessage = {
+      type: "start_watch",
+      mal_id: selectedMal,
+      episode: selectedEpisode,
+      sender: user?.id,
+    };
+    wsRef.current.send(JSON.stringify(payload));
+    navigate(`/watch/${selectedMal}?ep=${selectedEpisode}&room=${code.toUpperCase()}&autoplay=1`);
+    window.setTimeout(() => setSendingStart(false), 250);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -224,7 +283,13 @@ const Rooms = () => {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" onClick={() => copyRoomLink(room.data.code)}><Copy className="w-4 h-4 mr-2" /> Copy link</Button>
-                    {room.data.mal_id ? <Button asChild className="bg-gradient-ember text-primary-foreground"><Link to={`/watch/${room.data.mal_id}?ep=${room.data.episode}`}>Open watch page</Link></Button> : null}
+                    {room.data.mal_id ? <Button asChild className="bg-gradient-ember text-primary-foreground"><Link to={`/watch/${room.data.mal_id}?ep=${room.data.episode}&room=${room.data.code}`}>Open watch page</Link></Button> : null}
+                    {user?.id === room.data.host_id ? (
+                      <Button onClick={startWatchForEveryone} disabled={sendingStart}>
+                        <PlayCircle className="w-4 h-4 mr-2" />
+                        {sendingStart ? "Starting..." : "Start For Everyone"}
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
               ) : (

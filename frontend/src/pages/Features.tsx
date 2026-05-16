@@ -2,7 +2,6 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Navbar } from '@/components/Navbar';
 
 const features = [
   {
@@ -30,7 +29,6 @@ const features = [
 const Features = () => {
   return (
     <div className="bg-background text-foreground min-h-screen">
-      <Navbar />
       <div className="container mx-auto px-4 py-16">
         <motion.div
           initial={{ opacity: 0, y: -50 }}

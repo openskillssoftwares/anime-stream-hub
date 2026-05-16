@@ -59,10 +59,20 @@ const Admin = () => {
 
   const loadAll = async () => {
     try {
-      const [s, u, c, r, f, b] = await Promise.all([
+      const [s, u, c, r, f, b] = await Promise.allSettled([
         api.adminStats(), api.adminListUsers(), api.adminListComments(), api.adminListRatings(), api.adminListFlags(), api.adminListBannedAnime(),
       ]);
-      setStats(s); setUsers(u); setComments(c); setRatings(r); setFlags(f); setBanned(b);
+      if (s.status === "fulfilled") setStats(s.value);
+      if (u.status === "fulfilled") setUsers(u.value);
+      if (c.status === "fulfilled") setComments(c.value);
+      if (r.status === "fulfilled") setRatings(r.value);
+      if (f.status === "fulfilled") setFlags(f.value);
+      if (b.status === "fulfilled") setBanned(b.value);
+
+      const failed = [s, u, c, r, f, b].filter((x) => x.status === "rejected");
+      if (failed.length > 0) {
+        toast.error(`Loaded with ${failed.length} partial error${failed.length > 1 ? "s" : ""}.`);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Load failed");
     }

@@ -22,6 +22,7 @@ import Donation from "./pages/Donation";
 import Contact from "./pages/Contact";
 import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
+import Features from "./pages/Features";
 import FloatingAIButton from "@/components/FloatingAIButton";
 
 
@@ -37,7 +38,8 @@ const App = () => (
         <AuthProvider>
           <InteractiveBackground />
           <Routes>
-            <Route path="/" element={<Index />} />
+            <Route path="/" element={<Features />} />
+            <Route path="/home" element={<Index />} />
             <Route path="/browse" element={<Browse />} />
             <Route path="/watch/:id" element={<Watch />} />
             <Route path="/auth" element={<Auth />} />

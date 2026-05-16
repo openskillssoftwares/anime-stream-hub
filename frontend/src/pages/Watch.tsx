@@ -249,7 +249,7 @@ const Watch = () => {
     if (!stream.data || fallbackNoticeShown) return;
     if (stream.data.mal_id !== malId) {
       setFallbackNoticeShown(true);
-      toast.info("Switched to a compatible stream match for this title.");
+      toast.info("Uncensored Version is not available for this anime. Switching to Original Version.");
     }
   }, [stream.data, malId, fallbackNoticeShown]);
 

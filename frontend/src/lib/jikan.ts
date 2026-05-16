@@ -43,6 +43,7 @@ export interface Anime {
   rank?: number | null;
   broadcast?: { day?: string | null; time?: string | null; string?: string | null } | null;
   aired?: { from?: string | null; to?: string | null } | string | null;
+  has_uncensored_version?: boolean;
 }
 
 export interface AnimeEpisode {
@@ -58,6 +59,18 @@ async function get<T>(path: string): Promise<T> {
   return res.json();
 }
 
+interface JikanPagination {
+  last_visible_page?: number;
+  has_next_page?: boolean;
+  current_page?: number;
+  items?: { count?: number; total?: number; per_page?: number };
+}
+
+export interface BrowseResult {
+  data: Anime[];
+  pagination?: JikanPagination;
+}
+
 const safeList = async (path: string): Promise<Anime[]> => {
   try {
     const r = await get<{ data: Anime[] }>(path);
@@ -68,17 +81,17 @@ const safeList = async (path: string): Promise<Anime[]> => {
 };
 
 export const jikan = {
-  topAiring: () => safeList("/top/anime?filter=airing&limit=15"),
+  topAiring: () => safeList("/top/anime?filter=airing&limit=12"),
   topAll: () => safeList("/top/anime?limit=10"),
-  seasonNow: () => safeList("/seasons/now?limit=30"),
-  upcoming: () => safeList("/seasons/upcoming?limit=20"),
+  seasonNow: () => safeList("/seasons/now?limit=18"),
+  upcoming: () => safeList("/seasons/upcoming?limit=12"),
   newReleases: () => safeList("/anime?order_by=start_date&sort=desc&status=airing&sfw=true&limit=14"),
   search: (q: string) => safeList(`/anime?q=${encodeURIComponent(q)}&limit=500`),
   byGenre: (genreId: number, page = 1) =>
     safeList(`/anime?genres=${genreId}&order_by=score&sort=desc&limit=100&page=${page}`),
-  byFilters: (params: { type?: string; status?: string; rating?: string;
-                         genres?: number[]; order_by?: string; sort?: string;
-                         q?: string; page?: number; limit?: number }) => {
+  byFilters: async (params: { type?: string; status?: string; rating?: string;
+                              genres?: number[]; order_by?: string; sort?: string;
+                              q?: string; page?: number; limit?: number }): Promise<BrowseResult> => {
     const u = new URLSearchParams();
     if (params.q) u.set("q", params.q);
     if (params.type) u.set("type", params.type);
@@ -89,7 +102,15 @@ export const jikan = {
     u.set("sort", params.sort || "desc");
     u.set("limit", String(params.limit || 100));
     u.set("page", String(params.page || 1));
-    return safeList(`/anime?${u.toString()}`);
+    try {
+      const r = await get<{ data?: Anime[]; pagination?: JikanPagination }>(`/anime?${u.toString()}`);
+      return {
+        data: Array.isArray(r?.data) ? r.data : [],
+        pagination: r?.pagination,
+      };
+    } catch {
+      return { data: [] };
+    }
   },
   byId: async (id: number | string): Promise<Anime | null> => {
     try {

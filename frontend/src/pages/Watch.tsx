@@ -246,7 +246,7 @@ const Watch = () => {
     if (!stream.data || fallbackNoticeShown) return;
     if (stream.data.mal_id !== malId) {
       setFallbackNoticeShown(true);
-      toast.info("Uncensored is not available. Switching to default.");
+      toast.info("Switched to a compatible stream match for this title.");
     }
   }, [stream.data, malId, fallbackNoticeShown]);
 
@@ -440,14 +440,17 @@ const Watch = () => {
   const pageUrl = typeof window !== "undefined" ? window.location.href : "";
   const shareTitle = anime.data?.title_english || anime.data?.title || "Hey Anime";
 
-  // Inject ShareThis script once on mount
+  // ShareThis script is loaded globally via index.html.
+  // Re-trigger rendering when the component mounts (SPA navigation means
+  // the widget div appears after the script has already initialised).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (document.querySelector('script[src*="sharethis.js"]')) return; // already injected
-    const script = document.createElement("script");
-    script.src = "https://platform-api.sharethis.com/js/sharethis.js#property=64f217497373fd001949ddd0&product=inline-share-buttons";
-    script.async = true;
-    document.head.appendChild(script);
+    try {
+      const st = (window as any).__sharethis__;
+      if (st?.initialize) st.initialize();
+      else if ((window as any).sharethis?.initialize) (window as any).sharethis.initialize();
+    } catch {
+      // Silent fail — buttons will still render on hard load
+    }
   }, []);
 
   // Player postMessage events: progress + auto-next + error fallback

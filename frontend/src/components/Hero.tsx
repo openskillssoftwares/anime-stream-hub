@@ -11,7 +11,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 // ─── Fetch top 10 directly from Jikan ────────────────────────────────────────
 
 const fetchTop10 = async (): Promise<Anime[]> => {
-  const res = await fetch("https://api.jikan.moe/v4/top/anime?limit=10&filter=bypopularity");
+  // "airing" filter returns the top currently-airing anime — effectively this season/month's best
+  const res = await fetch("https://api.jikan.moe/v4/top/anime?limit=10&filter=airing");
   if (!res.ok) throw new Error("Failed to fetch top anime");
   const json = await res.json();
   return json.data as Anime[];
@@ -137,7 +138,7 @@ export const Hero = ({ featuredList }: { featuredList?: Anime[] }) => {
             {list.length > 0 && (
               <div className="flex items-center gap-3 mb-4">
                 <span className="text-xs uppercase tracking-[0.35em] text-primary">
-                  {featuredList?.length ? "Monthly featured top 10" : "Top 10 Most Popular"}
+                  {featuredList?.length ? "Monthly featured top 10" : `Top 10 This Month — ${new Date().toLocaleString("default", { month: "long", year: "numeric" })}`}
                 </span>
                 {active && (
                   <span className="font-display text-5xl md:text-7xl font-bold text-white/10 select-none leading-none">

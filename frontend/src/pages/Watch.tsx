@@ -1192,7 +1192,7 @@ const HindiPlayer: React.FC<{ src: string }> = ({ src }) => {
   );
 };
 
-<{ children: React.ReactNode }, { error: Error | null; info: React.ErrorInfo | null }> {
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; info: React.ErrorInfo | null }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { error: null, info: null };

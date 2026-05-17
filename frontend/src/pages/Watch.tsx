@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
@@ -17,8 +17,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import type { AnimeEpisode } from "@/lib/jikan";
 
-type Lang = "sub" | "dub";
-type Source = "mal" | "anikoto";
+type Lang = "sub" | "dub" | "hin";
+type Source = "mal" | "anikoto" | "consumet";
 type Version = "default" | "uncensored";
 
 interface PlayerEvent {
@@ -46,6 +46,9 @@ const Watch = () => {
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
   const [iframeLoading, setIframeLoading] = useState(true);
   const [fallbackNoticeShown, setFallbackNoticeShown] = useState(false);
+  const [hindiEmbedUrl, setHindiEmbedUrl] = useState<string | null>(null);
+  const [hindiLoading, setHindiLoading] = useState(false);
+  const [hindiAvailable, setHindiAvailable] = useState<boolean | null>(null); // null = not checked yet
   const ws = useRef<WebSocket | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const suppressOutgoingUntil = useRef<number>(0);
@@ -159,6 +162,98 @@ const Watch = () => {
   }, [user, malId, searchParams, eps.data, anime.data?.episodes]);
 
   useEffect(() => { setIframeError(false); setIframeLoading(true); }, [episode, id, lang, source, version]);
+
+  // ── Hindi dub: search Tatakai API then resolve episode embed ──────────────
+  const TATAKAI_BASE = "https://api.tatakai.me";
+
+  useEffect(() => {
+    if (!anime.data) return;
+    // Only check availability once per anime load
+    if (hindiAvailable !== null) return;
+
+    const title = anime.data.title_english || anime.data.title;
+    if (!title) return;
+
+    setHindiLoading(true);
+    fetch(`${TATAKAI_BASE}/api/v1/hindidubbed/search?q=${encodeURIComponent(title)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const results = data?.results ?? data?.data ?? [];
+        if (Array.isArray(results) && results.length > 0) {
+          setHindiAvailable(true);
+        } else {
+          setHindiAvailable(false);
+        }
+      })
+      .catch(() => setHindiAvailable(false))
+      .finally(() => setHindiLoading(false));
+  }, [anime.data, hindiAvailable]);
+
+  // ── Resolve Hindi embed URL when lang === "hin" ───────────────────────────
+  useEffect(() => {
+    if (lang !== "hin" || !anime.data) return;
+    if (hindiEmbedUrl) return; // already resolved
+
+    const title = anime.data.title_english || anime.data.title;
+    if (!title) return;
+
+    setHindiLoading(true);
+    setIframeLoading(true);
+
+    fetch(`${TATAKAI_BASE}/api/v1/hindidubbed/search?q=${encodeURIComponent(title)}`)
+      .then((r) => r.json())
+      .then(async (data) => {
+        const results = data?.results ?? data?.data ?? [];
+        if (!Array.isArray(results) || results.length === 0) {
+          throw new Error("No Hindi dub found");
+        }
+
+        // Pick best match by title similarity
+        const animeTitle = title.toLowerCase();
+        const best = results.reduce((prev: any, curr: any) => {
+          const prevTitle = (curr.title || curr.name || "").toLowerCase();
+          const currTitle = (curr.title || curr.name || "").toLowerCase();
+          return currTitle.includes(animeTitle) || animeTitle.includes(currTitle) ? curr : prev;
+        }, results[0]);
+
+        const seriesId = best?.id || best?.animeId;
+        if (!seriesId) throw new Error("No series ID");
+
+        // Get episodes from the series
+        const seriesRes = await fetch(`${TATAKAI_BASE}/api/v1/hindidubbed/episodes/${seriesId}`);
+        const seriesData = await seriesRes.json();
+        const episodes = seriesData?.episodes ?? seriesData?.data ?? [];
+
+        if (!Array.isArray(episodes) || episodes.length === 0) {
+          throw new Error("No episodes found");
+        }
+
+        // Find matching episode
+        const epData = episodes.find((e: any) =>
+          Number(e.number ?? e.episode ?? e.episodeNumber) === episode
+        ) ?? episodes[Math.min(episode - 1, episodes.length - 1)];
+
+        const embedId = epData?.id ?? epData?.episodeId ?? epData?.embed_id;
+        if (!embedId) throw new Error("No embed ID");
+
+        // Build embed URL via Tatakai consumet proxy
+        const embedUrl = `${TATAKAI_BASE}/api/v1/consumet/anime/gogoanime/watch/${encodeURIComponent(embedId)}`;
+        setHindiEmbedUrl(embedUrl);
+        setHindiAvailable(true);
+      })
+      .catch((err) => {
+        console.warn("Hindi dub resolve failed:", err);
+        toast.error("Hindi dub not available for this episode. Switching to SUB.");
+        setLang("sub");
+        setHindiAvailable(false);
+      })
+      .finally(() => setHindiLoading(false));
+  }, [lang, episode, anime.data, hindiEmbedUrl]);
+
+  // Reset hindi embed when episode changes
+  useEffect(() => {
+    setHindiEmbedUrl(null);
+  }, [episode, id]);
 
   const isUpcoming = useMemo(() => {
     const status = (anime.data?.status || "").toString().toLowerCase();
@@ -389,6 +484,38 @@ const Watch = () => {
     }
   }, [episode, currentEpisodeIndex, episodeList]);
 
+  // Auto-resolve Anikoto ID proactively as soon as anime data loads,
+  // so the fallback is instant if MAL stream fails or shows a 404 page.
+  useEffect(() => {
+    if (!anime.data || anikotoId) return;
+    api.anikotoResolve(malId)
+      .then((res) => { if (res.anikoto_id) setAnikotoId(res.anikoto_id); })
+      .catch(() => {}); // silent — just a pre-fetch
+  }, [anime.data, malId]);
+
+  const tryAnikotoFallback = useCallback(async () => {
+    if (autoFallbackTried) return;
+    setAutoFallbackTried(true);
+    try {
+      // Use already-resolved anikotoId if we have it
+      if (anikotoId) {
+        setSource("anikoto");
+        toast.info("Switching to Server 2…");
+        return;
+      }
+      const resolved = await api.anikotoResolve(malId);
+      if (resolved.anikoto_id) {
+        setAnikotoId(resolved.anikoto_id);
+        setSource("anikoto");
+        toast.info("Switching to Server 2…");
+      } else {
+        toast.error("Stream unavailable on both servers. Try another episode.");
+      }
+    } catch {
+      toast.error("Stream unavailable. Try another episode or server.");
+    }
+  }, [autoFallbackTried, anikotoId, malId]);
+
   useEffect(() => {
     if (!stream.error) return;
     if (source === "anikoto") {
@@ -396,22 +523,16 @@ const Watch = () => {
       setSource("mal");
       return;
     }
+    if (source === "mal") tryAnikotoFallback();
+  }, [stream.error, source, tryAnikotoFallback]);
+
+  // Also trigger fallback when the player itself reports an error via postMessage
+  useEffect(() => {
+    if (!iframeError) return;
     if (source === "mal" && !autoFallbackTried) {
-      setAutoFallbackTried(true);
-      (async () => {
-        try {
-          const resolved = await api.anikotoResolve(malId);
-          if (resolved.anikoto_id) {
-            setAnikotoId(resolved.anikoto_id);
-            setSource("anikoto");
-            toast.info("Trying alternative server...");
-          }
-        } catch {
-          toast.error("Stream unavailable. Try another episode or server.");
-        }
-      })();
+      tryAnikotoFallback();
     }
-  }, [stream.error, source, autoFallbackTried, malId]);
+  }, [iframeError, source, autoFallbackTried, tryAnikotoFallback]);
 
   const handleReportStream = async () => {
     if (!user) {
@@ -456,6 +577,10 @@ const Watch = () => {
       // error → try to switch source automatically
       if (d.event === "error") {
         setIframeError(true);
+        // If on MAL source, immediately try Anikoto fallback
+        if (source === "mal") {
+          tryAnikotoFallback();
+        }
         return;
       }
 
@@ -517,7 +642,7 @@ const Watch = () => {
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [user, malId, episode, nextEpisodeNumber, anime.data, roomCode]);
+  }, [user, malId, episode, nextEpisodeNumber, anime.data, roomCode, source, tryAnikotoFallback]);
 
   const playerSrc = stream.data?.embed_url;
   const streamErrored = !!stream.error;

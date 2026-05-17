@@ -161,7 +161,11 @@ const Watch = () => {
       });
   }, [user, malId, searchParams, eps.data, anime.data?.episodes]);
 
-  useEffect(() => { setIframeError(false); setIframeLoading(true); }, [episode, id, lang, source, version]);
+  useEffect(() => {
+    setIframeError(false);
+    // Only reset iframe loading for sub/dub — Hindi uses its own <video> element
+    if (lang !== "hin") setIframeLoading(true);
+  }, [episode, id, lang, source, version]);
 
   // ── Hindi dub: search Tatakai API then resolve episode embed ──────────────
   const TATAKAI_BASE = "https://api.tatakai.me";
@@ -236,9 +240,23 @@ const Watch = () => {
         const embedId = epData?.id ?? epData?.episodeId ?? epData?.embed_id;
         if (!embedId) throw new Error("No embed ID");
 
-        // Build embed URL via Tatakai consumet proxy
-        const embedUrl = `${TATAKAI_BASE}/api/v1/consumet/anime/gogoanime/watch/${encodeURIComponent(embedId)}`;
-        setHindiEmbedUrl(embedUrl);
+        // Get stream sources from Tatakai consumet proxy
+        const streamRes = await fetch(`${TATAKAI_BASE}/api/v1/consumet/anime/gogoanime/watch/${encodeURIComponent(embedId)}`);
+        const streamData = await streamRes.json();
+
+        // Consumet returns { sources: [{url, quality}], headers: {...} }
+        const sources: { url: string; quality?: string; isM3U8?: boolean }[] =
+          streamData?.sources ?? streamData?.data?.sources ?? [];
+
+        if (!sources.length) throw new Error("No stream sources");
+
+        // Prefer 1080p → 720p → default → first available
+        const preferred = sources.find((s) => s.quality === "1080p")
+          ?? sources.find((s) => s.quality === "720p")
+          ?? sources.find((s) => s.quality === "default")
+          ?? sources[0];
+
+        setHindiEmbedUrl(preferred.url);
         setHindiAvailable(true);
       })
       .catch((err) => {
@@ -314,13 +332,16 @@ const Watch = () => {
     queryKey: ["stream", id, episode, lang, source, version, anikotoId],
     queryFn: async (): Promise<StreamOut> => {
       const title = anime.data?.title_english || anime.data?.title || undefined;
-      const result = await api.getStream(malId, episode, lang, source, anikotoId, title, version);
+      // MegaPlay only understands "sub" | "dub" — Hindi is handled separately via Tatakai
+      const megaplayLang: "sub" | "dub" = lang === "dub" ? "dub" : "sub";
+      const result = await api.getStream(malId, episode, megaplayLang, source, anikotoId, title, version);
       if (!result.embed_url) {
         throw new Error("Stream URL not found in response");
       }
       return result;
     },
-    enabled: !!anime.data && episode > 0,
+    // Disable entirely when Hindi is selected — Tatakai handles it independently
+    enabled: !!anime.data && episode > 0 && lang !== "hin",
     retry: 2,
     staleTime: 1000 * 60 * 5, // 5 minutes
     refetchOnWindowFocus: false,
@@ -644,9 +665,9 @@ const Watch = () => {
     return () => window.removeEventListener("message", onMsg);
   }, [user, malId, episode, nextEpisodeNumber, anime.data, roomCode, source, tryAnikotoFallback]);
 
-  const playerSrc = stream.data?.embed_url;
-  const streamErrored = !!stream.error;
-  const showFallback = !blocked.data?.blocked && (iframeError || streamErrored);
+  const playerSrc = lang === "hin" ? hindiEmbedUrl : stream.data?.embed_url;
+  const streamErrored = lang === "hin" ? false : !!stream.error; // hindi has its own error handling
+  const showFallback = !blocked.data?.blocked && (iframeError || streamErrored) && lang !== "hin";
 
   return (
     <div className="min-h-screen bg-background">
@@ -743,6 +764,31 @@ const Watch = () => {
                     This title has not aired yet. We'll show the player when it starts airing.
                   </p>
                 </div>
+              ) : lang === "hin" && hindiLoading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-28 h-28">
+                      <video src="/loading.webm" autoPlay loop muted playsInline className="w-full h-full object-contain" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">Finding Hindi dub…</p>
+                  </div>
+                </div>
+              ) : lang === "hin" && hindiAvailable === false ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 gap-3">
+                  <AlertTriangle className="w-10 h-10 text-primary" />
+                  <p className="font-display text-2xl">Hindi dub unavailable</p>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    This anime doesn't have a Hindi dub yet. Switching to SUB.
+                  </p>
+                  <button
+                    onClick={() => setLang("sub")}
+                    className="mt-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90"
+                  >
+                    Watch in SUB
+                  </button>
+                </div>
+              ) : lang === "hin" && playerSrc ? (
+                <HindiPlayer src={playerSrc} />
               ) : !playerSrc ? (
                 <div className="absolute inset-0 grid place-items-center text-muted-foreground text-sm">
                   Loading player…
@@ -794,7 +840,14 @@ const Watch = () => {
               <SegmentedToggle
                 label={<><Languages className="w-3.5 h-3.5" /> Lang</>}
                 value={lang}
-                onChange={(v) => setLang(v as Lang)}
+                onChange={(v) => {
+                  const newLang = v as Lang;
+                  setLang(newLang);
+                  // Reset hindi embed when switching away or back
+                  if (newLang !== "hin") setHindiEmbedUrl(null);
+                  // Reset iframe error when switching lang
+                  setIframeError(false);
+                }}
                 options={[
                   { value: "sub", label: "SUB" },
                   {
@@ -802,6 +855,16 @@ const Watch = () => {
                     label: "DUB",
                     disabled: !!streamOptions.data && !streamOptions.data.has_dub,
                     title: streamOptions.data && !streamOptions.data.has_dub ? "Dub unavailable for this title" : undefined,
+                  },
+                  {
+                    value: "hin",
+                    label: hindiLoading && hindiAvailable === null ? "HIN…" : "HIN",
+                    disabled: hindiAvailable === false,
+                    title: hindiAvailable === false
+                      ? "Hindi dub not available for this title"
+                      : hindiAvailable === null
+                      ? "Checking Hindi dub availability…"
+                      : "Watch in Hindi dub",
                   },
                 ]}
               />
@@ -816,6 +879,7 @@ const Watch = () => {
                   ]}
                 />
               ) : null}
+              {lang !== "hin" && (
               <SegmentedToggle
                 label={<><Server className="w-3.5 h-3.5" /> Source</>}
                 value={source}
@@ -853,6 +917,7 @@ const Watch = () => {
                   { value: "anikoto", label: anikotoId ? `Server 2 (#${anikotoId})` : "Server 2 (Anikoto)" },
                 ]}
               />
+              )}
               <Button
                 size="sm" variant="ghost"
                 onClick={() => { setIframeError(false); stream.refetch(); }}
@@ -1079,7 +1144,55 @@ const SegmentedToggle = ({
   </div>
 );
 
-class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null; info: React.ErrorInfo | null }> {
+// ─── HindiPlayer — plays m3u8 streams from Tatakai/Consumet ─────────────────
+// Uses native HLS via browser (Safari) or dynamically loads hls.js for others.
+
+const HindiPlayer: React.FC<{ src: string }> = ({ src }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return;
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      // Safari supports HLS natively
+      video.src = src;
+      video.play().catch(() => {});
+      return;
+    }
+
+    // Dynamically import hls.js for other browsers
+    import("https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js" as any)
+      .catch(() => null)
+      .then((mod) => {
+        const Hls = mod?.default ?? (window as any).Hls;
+        if (!Hls || !Hls.isSupported()) {
+          // Last resort — try assigning directly
+          video.src = src;
+          video.play().catch(() => {});
+          return;
+        }
+        const hls = new Hls({ enableWorker: false });
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+        return () => hls.destroy();
+      });
+  }, [src]);
+
+  return (
+    <video
+      ref={videoRef}
+      controls
+      autoPlay
+      playsInline
+      className="absolute inset-0 w-full h-full bg-black"
+      style={{ objectFit: "contain" }}
+    />
+  );
+};
+
+<{ children: React.ReactNode }, { error: Error | null; info: React.ErrorInfo | null }> {
   constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { error: null, info: null };

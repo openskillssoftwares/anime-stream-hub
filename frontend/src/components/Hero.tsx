@@ -217,87 +217,102 @@ export const Hero = ({ featuredList }: { featuredList?: Anime[] }) => {
         </AnimatePresence>
 
         {/* ── Top 10 Slider ── */}
-        <div className="mt-8 w-full">
+        <div className="mt-10 w-full">
           {loadingTop10 && !featuredList?.length ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" /> Loading top anime…
             </div>
           ) : list.length > 0 ? (
-            <div className="relative">
-              {/* Prev/Next arrows */}
-              <button
-                onClick={prev}
-                className="absolute -left-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors hidden sm:flex"
-                aria-label="Previous"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={next}
-                className="absolute -right-3 top-1/2 -translate-y-1/2 z-10 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors hidden sm:flex"
-                aria-label="Next"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+            <div className="relative group/slider">
 
-              {/* Thumbnails scroll container */}
-              <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-1">
+              {/* Left fade + arrow */}
+              <div className="absolute left-0 top-0 bottom-0 w-12 bg-gradient-to-r from-background/60 to-transparent z-10 flex items-center justify-start pl-1 opacity-0 group-hover/slider:opacity-100 transition-opacity">
+                <button
+                  onClick={prev}
+                  className="w-8 h-8 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center transition-colors"
+                  aria-label="Previous"
+                >
+                  <ChevronLeft className="w-4 h-4 text-white" />
+                </button>
+              </div>
+
+              {/* Right fade + arrow */}
+              <div className="absolute right-0 top-0 bottom-0 w-12 bg-gradient-to-l from-background/60 to-transparent z-10 flex items-center justify-end pr-1 opacity-0 group-hover/slider:opacity-100 transition-opacity">
+                <button
+                  onClick={next}
+                  className="w-8 h-8 rounded-full bg-black/70 hover:bg-black/90 flex items-center justify-center transition-colors"
+                  aria-label="Next"
+                >
+                  <ChevronRight className="w-4 h-4 text-white" />
+                </button>
+              </div>
+
+              {/* Cards row */}
+              <div className="flex gap-3 overflow-x-auto scrollbar-hide py-1 px-0.5">
                 {list.map((item, i) => {
                   const isActive = i === index;
-                  const thumb = item.images?.jpg?.image_url || item.images?.jpg?.large_image_url || heroImg;
+                  const thumb = item.images?.jpg?.large_image_url || item.images?.jpg?.image_url || heroImg;
                   return (
                     <button
                       key={item.mal_id}
                       onClick={() => goTo(i)}
                       title={item.title_english || item.title}
-                      className={`group relative shrink-0 w-[80px] sm:w-[90px] md:w-[100px] overflow-hidden rounded-lg transition-all duration-300 ${
+                      className={`group/card relative shrink-0 flex items-end rounded-xl overflow-hidden transition-all duration-300 ${
                         isActive
-                          ? "ring-2 ring-primary scale-105 shadow-glow"
-                          : "ring-1 ring-white/20 opacity-60 hover:opacity-100 hover:scale-102"
+                          ? "w-[160px] md:w-[180px] ring-2 ring-primary shadow-glow opacity-100"
+                          : "w-[110px] md:w-[130px] ring-1 ring-white/10 opacity-50 hover:opacity-80 hover:ring-white/30"
                       }`}
+                      style={{ height: "180px" }}
                     >
-                      {/* Thumbnail */}
+                      {/* Cover image */}
                       <img
                         src={thumb}
                         alt={item.title}
                         loading="lazy"
-                        className="w-full h-[120px] sm:h-[130px] object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover/card:scale-105"
                       />
 
-                      {/* Rank badge */}
-                      <div className={`absolute left-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                        isActive ? "bg-primary text-primary-foreground" : "bg-black/70 text-white"
-                      }`}>
-                        #{i + 1}
-                      </div>
+                      {/* Dark overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent" />
 
-                      {/* Score */}
+                      {/* Rank number — large, stylised */}
+                      <span className={`absolute top-2 left-2.5 font-display font-black leading-none select-none transition-all ${
+                        isActive ? "text-3xl text-primary drop-shadow-lg" : "text-2xl text-white/40"
+                      }`}>
+                        {i + 1}
+                      </span>
+
+                      {/* Score top-right */}
                       {item.score && (
-                        <div className="absolute right-1.5 top-1.5 rounded-full bg-black/70 px-1.5 py-0.5 text-[9px] text-yellow-400 font-semibold flex items-center gap-0.5">
-                          <Star className="w-2.5 h-2.5 fill-yellow-400" />
-                          {item.score.toFixed(1)}
+                        <div className="absolute top-2 right-2 flex items-center gap-0.5 bg-black/60 rounded-full px-1.5 py-0.5">
+                          <Star className="w-2.5 h-2.5 fill-yellow-400 text-yellow-400" />
+                          <span className="text-[10px] text-yellow-300 font-semibold">{item.score.toFixed(1)}</span>
                         </div>
                       )}
 
-                      {/* Title + Watch now overlay */}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-1.5">
-                        <p className="text-[10px] text-white font-medium line-clamp-2 leading-tight">
+                      {/* Bottom info */}
+                      <div className="relative w-full p-2.5 z-10">
+                        <p className={`font-medium leading-tight transition-all ${
+                          isActive ? "text-xs text-white line-clamp-2" : "text-[10px] text-white/70 line-clamp-1"
+                        }`}>
                           {item.title_english || item.title}
                         </p>
+
+                        {/* Watch button — only on active */}
                         {isActive && (
                           <Link
                             to={`/watch/${item.mal_id}?ep=1`}
                             onClick={(e) => e.stopPropagation()}
-                            className="mt-1 flex items-center gap-0.5 text-[9px] text-primary font-semibold hover:underline"
+                            className="mt-2 flex items-center justify-center gap-1.5 w-full rounded-lg bg-primary/90 hover:bg-primary py-1 text-[11px] font-semibold text-primary-foreground transition-colors"
                           >
-                            <Play className="w-2.5 h-2.5 fill-current" /> Watch
+                            <Play className="w-3 h-3 fill-current" /> Watch now
                           </Link>
                         )}
                       </div>
 
                       {/* Active progress bar */}
                       {isActive && (
-                        <div className="absolute bottom-0 inset-x-0 h-0.5 bg-white/20">
+                        <div className="absolute bottom-0 inset-x-0 h-0.5 bg-white/10">
                           <motion.div
                             className="h-full bg-primary"
                             initial={{ width: "0%" }}

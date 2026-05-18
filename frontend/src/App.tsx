@@ -22,6 +22,10 @@ import Donation from "./pages/Donation";
 import Contact from "./pages/Contact";
 import Community from "./pages/Community";
 import NotFound from "./pages/NotFound";
+import Season from "./pages/Season";
+import New from "./pages/New";
+import Top from "./pages/Top";
+import Trending from "./pages/Trending";
 import Features from "./pages/Features";
 import FloatingAIButton from "@/components/FloatingAIButton";
 
@@ -41,6 +45,10 @@ const App = () => (
             <Route path="/" element={<Features />} />
             <Route path="/home" element={<Index />} />
             <Route path="/browse" element={<Browse />} />
+            <Route path="/season" element={<Season />} />
+            <Route path="/new" element={<New />} />
+            <Route path="/top10" element={<Top />} />
+            <Route path="/trending" element={<Trending />} />
             <Route path="/watch/:id" element={<Watch />} />
             <Route path="/auth" element={<Auth />} />
             <Route path="/dashboard" element={<Dashboard />} />

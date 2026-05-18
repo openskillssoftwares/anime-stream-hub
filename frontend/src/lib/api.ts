@@ -1,6 +1,6 @@
-// Hey Anime backend API client. Use Vite env `VITE_BACKEND_URL`.
+// Hey Anime backend API client. Use Vite env `VITE_BACKEND_URL` api.ts
 import { supabase } from "@/integrations/supabase/client";
-
+//api.ts main//
 const BASE = (import.meta.env.VITE_BACKEND_URL as string) || "";
 
 async function authHeader(): Promise<Record<string, string>> {

@@ -83,7 +83,7 @@ const Browse = () => {
       sort: "desc",
       genres: genres.length ? genres.filter(g => !EXCLUDE_GENRES.includes(g)) : undefined,
       page,
-      limit: 100,
+      limit: 500,
     }),
     placeholderData: (prev) => prev,
   });
@@ -91,7 +91,7 @@ const Browse = () => {
   const orderedResults: Anime[] = results.data?.data && q
     ? rankSearchResults(results.data.data, q)
     : (results.data?.data || []);
-  const hasNextPage = results.data?.pagination?.has_next_page ?? (orderedResults.length >= 100);
+  const hasNextPage = results.data?.pagination?.has_next_page ?? (orderedResults.length >= 500);
 
   const toggleGenre = (id: number) => {
     setGenres((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);

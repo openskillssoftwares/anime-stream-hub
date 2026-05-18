@@ -17,7 +17,7 @@ export const rankSearchResults = (items: Anime[], query: string): Anime[] => {
   const score = (anime: Anime) => {
     const title = normalize(anime.title_english || anime.title || "");
     const exact = title === q ? 1000 : 0;
-    const starts = title.startsWith(q) ? 500 : 0;
+    const starts = title.startsWith(q) ? 700 : 0; //Changed from 500 to 700//
     const wordHits = tokens.reduce((acc, token) => acc + (title.includes(token) ? 20 : 0), 0);
     const fuzzy = tokens.reduce((acc, token) => acc + (title.includes(token) ? 1 : 0), 0);
     const meta = (anime.score || 0) + (anime.episodes || 0) * 0.01 + (anime.year || 0) * 0.0001;
@@ -81,14 +81,14 @@ const safeList = async (path: string): Promise<Anime[]> => {
 };
 
 export const jikan = {
-  topAiring: () => safeList("/top/anime?filter=airing&limit=30"),
+  topAiring: () => safeList("/top/anime?filter=airing&limit=20"), //changed from 30 to 20//
   topAll: () => safeList("/top/anime?limit=10"),
-  seasonNow: () => safeList("/seasons/now?limit=60"),
+  seasonNow: () => safeList("/seasons/now?limit=30"), //Changed from 60 to 30//
   upcoming: () => safeList("/seasons/upcoming?limit=20"),
-  newReleases: () => safeList("/anime?order_by=start_date&sort=desc&status=airing&sfw=true&limit=60"),
-  search: (q: string) => safeList(`/anime?q=${encodeURIComponent(q)}&limit=700`),
+  newReleases: () => safeList("/anime?order_by=start_date&sort=desc&status=airing&sfw=true&limit=40"), //Changed from 60 to 40//
+  search: (q: string) => safeList(`/anime?q=${encodeURIComponent(q)}&limit=700`), //Changed from 500  to 700 //
   byGenre: (genreId: number, page = 1) =>
-    safeList(`/anime?genres=${genreId}&order_by=score&sort=desc&limit=500&page=${page}`),
+    safeList(`/anime?genres=${genreId}&order_by=score&sort=desc&limit=700&page=${page}`), //Changed from 500 to 700//
   byFilters: async (params: { type?: string; status?: string; rating?: string;
                               genres?: number[]; order_by?: string; sort?: string;
                               q?: string; page?: number; limit?: number }): Promise<BrowseResult> => {
